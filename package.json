@@ -1,0 +1,45 @@
+{
+  "name": "opencode-goal",
+  "version": "0.1.0",
+  "description": "Persistent goal mode plugin for opencode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YanzuoLu/opencode-goal.git"
+  },
+  "homepage": "https://github.com/YanzuoLu/opencode-goal#readme",
+  "bugs": {
+    "url": "https://github.com/YanzuoLu/opencode-goal/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/src/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "rm -rf dist && bun build src/index.ts --outdir dist --target node --format esm --external @opencode-ai/plugin --external @opencode-ai/plugin/* --external @opencode-ai/sdk --external @opencode-ai/sdk/* && tsc --emitDeclarationOnly",
+    "pack:dry": "npm pack --dry-run --json",
+    "pack:smoke": "bun run scripts/pack-smoke.ts",
+    "smoke:tmux": "bun run scripts/smoke-tmux.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.17.7",
+    "@opencode-ai/sdk": "^1.17.7",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "@types/node": "^24.12.2",
+    "typescript": "^5.8.2"
+  },
+  "trustedDependencies": []
+}
