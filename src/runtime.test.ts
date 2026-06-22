@@ -328,10 +328,31 @@ describe("GoalRuntimeHooks", () => {
     expect((await store.getSession("s1")).flags.compactionNoticePending).toBe(true);
   });
 
-  test("compaction autocontinue marks active goal for one system notice", async () => {
+  test("compaction autocontinue leaves active goal autocontinue enabled and marks one system notice", async () => {
     const { store, runtime } = await setup();
     await store.createGoal("s1", "Ship it");
     const output = { enabled: true };
+
+    await (runtime as any).onCompactionAutocontinue({ sessionID: "s1" }, output);
+
+    expect(output.enabled).toBe(true);
+    expect((await store.getSession("s1")).flags.compactionNoticePending).toBe(true);
+  });
+
+  test("compaction autocontinue is a no-op for sessions without active goals", async () => {
+    const { store, runtime } = await setup();
+    const output = { enabled: true };
+
+    await (runtime as any).onCompactionAutocontinue({ sessionID: "ordinary" }, output);
+
+    expect(output.enabled).toBe(true);
+    expect((await store.getSession("ordinary")).goal).toBeUndefined();
+  });
+
+  test("compaction autocontinue preserves an already-disabled output flag", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+    const output = { enabled: false };
 
     await (runtime as any).onCompactionAutocontinue({ sessionID: "s1" }, output);
 

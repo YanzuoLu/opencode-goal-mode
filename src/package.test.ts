@@ -28,10 +28,10 @@ test("package metadata uses the non-conflicting GitHub release name", async () =
   expect(pkg.repository?.url).toBe("git+https://github.com/YanzuoLu/opencode-goal-mode.git");
 });
 
-test("package metadata declares release version 0.1.3", async () => {
+test("package metadata declares release version 0.1.4", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
-  expect(pkg.version).toBe("0.1.3");
+  expect(pkg.version).toBe("0.1.4");
 });
 
 test("package metadata points to emitted declaration file", async () => {
@@ -62,7 +62,8 @@ test("README documents pinned server and TUI plugin install entries", async () =
   expect(readme).toContain("opencode.json");
   expect(readme).toContain("tui.json");
   expect(readme).toContain("https://opencode.ai/tui.json");
-  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3");
+  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4");
+  expect(readme).not.toContain("#v0.1.3");
   expect(readme).not.toContain("#v0.1.2");
   expect(readme).not.toContain("/goal <objective>");
   expect(readme).toContain("/goal` opens the TUI goal menu/dialog. It does not take an inline objective argument.");

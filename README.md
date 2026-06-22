@@ -10,6 +10,7 @@ Persistent goal mode for opencode.
 - Ordinary user messages while a goal is active are persisted as supplemental instructions.
 - Esc interrupt does not pause or drop the goal.
 - Auto continuation runs only after opencode reports the session idle.
+- opencode's native post-compaction auto-continue remains enabled; goal mode only adds active-goal compaction context.
 - A continuation turn with no tool calls suppresses further automatic continuation.
 - The model must call `goal({ "op": "complete" })` to complete the goal.
 - Token and time budgets are not implemented.
@@ -31,7 +32,7 @@ Pin the server plugin to a release tag in `opencode.json` so later updates do no
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4"
   ]
 }
 ```
@@ -42,12 +43,12 @@ Pin the TUI plugin in `tui.json` with the same release tag:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.3`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.4`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -56,7 +57,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4",
       { "autoContinue": true }
     ]
   ]

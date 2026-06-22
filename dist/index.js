@@ -14596,7 +14596,6 @@ class GoalRuntimeHooks {
     }
   }
   async onCompactionAutocontinue(input, output) {
-    output.enabled = false;
     await this.markCompactionNoticePending(input.sessionID);
   }
   async markCompactionNoticePending(sessionID, options = {}) {

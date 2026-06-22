@@ -201,7 +201,6 @@ export class GoalRuntimeHooks {
   }
 
   async onCompactionAutocontinue(input: { sessionID: string }, output: { enabled: boolean }): Promise<void> {
-    output.enabled = false;
     await this.markCompactionNoticePending(input.sessionID);
   }
 

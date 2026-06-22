@@ -1,6 +1,6 @@
 {
   "name": "opencode-goal-mode",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Persistent goal mode plugin for opencode",
   "repository": {
     "type": "git",
