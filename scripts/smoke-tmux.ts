@@ -14,7 +14,7 @@ async function sh(strings: TemplateStringsArray, ...values: string[]) {
 
 await $`bun run typecheck`.cwd(root);
 await $`bun test`.cwd(root);
-await $`bun run build`.cwd(root);
+await $`bun run compile`.cwd(root);
 
 await mkdir(smokeDir, { recursive: true });
 await writeFile(

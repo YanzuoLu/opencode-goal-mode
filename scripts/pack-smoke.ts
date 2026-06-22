@@ -7,7 +7,7 @@ const smokeDir = "/tmp/opencode-goal-smoke";
 
 await $`bun run typecheck`.cwd(root);
 await $`bun test`.cwd(root);
-await $`bun run build`.cwd(root);
+await $`bun run compile`.cwd(root);
 await $`npm pack --dry-run --json`.cwd(root);
 
 await mkdir(smokeDir, { recursive: true });
