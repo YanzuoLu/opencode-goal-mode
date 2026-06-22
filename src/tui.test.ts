@@ -149,6 +149,17 @@ function latestDialog(api: any) {
   return api.dialogs.at(-1)?.rendered;
 }
 
+function adapterOption(option: any) {
+  return {
+    title: option.title,
+    value: option.value,
+    description: option.description,
+    footer: option.footer,
+    category: option.category,
+    disabled: option.disabled,
+  };
+}
+
 async function openGoalMenu(api: any) {
   const result = await registeredCommand(api).run();
   expect(result).toBe(true);
@@ -160,8 +171,9 @@ async function selectGoalAction(api: any, value: string) {
   expect(menu.type).toBe("select");
   const option = menu.props.options.find((item: any) => item.value === value);
   expect(option).toBeDefined();
-  await option.onSelect?.();
-  await menu.props.onSelect?.(option);
+  expect(option.onSelect).toBeUndefined();
+  expect(typeof menu.props.onSelect).toBe("function");
+  await menu.props.onSelect(adapterOption(option));
   return latestDialog(api);
 }
 
@@ -278,6 +290,54 @@ describe("goal TUI command", () => {
     expect(dialog.props.context).toBe("No active goal");
     expect(api.toasts).toHaveLength(0);
     expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("DialogSelect top-level onSelect dispatches selected goal action", async () => {
+    const { api, store } = await setup();
+    await store.createGoal(SESSION_ID, "Pause through DialogSelect onSelect");
+
+    const menu = await openGoalMenu(api);
+    expect(menu.type).toBe("select");
+    const option = menu.props.options.find((item: any) => item.value === "pause");
+    expect(option).toBeDefined();
+    expect(typeof menu.props.onSelect).toBe("function");
+
+    await menu.props.onSelect(adapterOption(option));
+
+    expect((await store.getSession(SESSION_ID)).goal?.status).toBe("paused");
+    expect(api.toasts).toHaveLength(1);
+    expect(api.toasts[0]).toMatchObject({ message: "Goal paused" });
+    expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("DialogSelect selection clears the menu before dispatching", async () => {
+    const { api, store } = await setup();
+    await store.createGoal(SESSION_ID, "Close the menu on select");
+
+    const menu = await openGoalMenu(api);
+    const option = menu.props.options.find((item: any) => item.value === "pause");
+    expect(option).toBeDefined();
+
+    await menu.props.onSelect(adapterOption(option));
+
+    expect(api.dialogs).toContainEqual({ cleared: true });
+    expect((await store.getSession(SESSION_ID)).goal?.status).toBe("paused");
+  });
+
+  test("fallback select view dispatches selected goal action", async () => {
+    const { api, store } = await setup();
+    await store.createGoal(SESSION_ID, "Fallback select path");
+    delete api.ui.DialogSelect;
+
+    const menu = await openGoalMenu(api);
+    const option = menu.options.find((item: any) => item.value === "pause");
+    expect(option).toBeDefined();
+    expect(typeof menu.onSelect).toBe("function");
+
+    await menu.onSelect(adapterOption(option));
+
+    expect((await store.getSession(SESSION_ID)).goal?.status).toBe("paused");
+    expect(api.toasts[0]).toMatchObject({ message: "Goal paused" });
   });
 
   test("pause changes status to paused, emits a toast, and does not prompt", async () => {

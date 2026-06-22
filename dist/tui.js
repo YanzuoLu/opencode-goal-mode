@@ -14576,6 +14576,7 @@ class GoalStore {
 
 // src/tui.ts
 var GOAL_MENU_SLASH = "goal-menu";
+var GOAL_MENU_ACTIONS = ["show", "set", "replace", "pause", "resume", "drop"];
 function currentSessionID(api2) {
   const value = api2.route?.current?.params?.sessionID;
   return typeof value === "string" ? value : undefined;
@@ -14842,12 +14843,14 @@ async function runAction(api2, store, action) {
     return resumeGoal(api2, store);
   return dropGoal(api2, store);
 }
-function menuOptions(api2, store) {
+function isGoalMenuAction(value) {
+  return typeof value === "string" && GOAL_MENU_ACTIONS.includes(value);
+}
+function menuOptions() {
   const option = (title, value, description) => ({
     title,
     value,
-    description,
-    onSelect: () => runAction(api2, store, value)
+    description
   });
   return [
     option("Show active goal", "show", "Display the current active goal context"),
@@ -14858,12 +14861,21 @@ function menuOptions(api2, store) {
     option("Drop goal", "drop", "Drop the active goal")
   ];
 }
-function showGoalMenu(api2, store) {
-  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogSelect?.({
+function goalMenuProps(api2, store) {
+  return {
     title: "Goal",
     placeholder: "Choose a goal action",
-    options: menuOptions(api2, store)
-  }) ?? { title: "Goal", options: menuOptions(api2, store) });
+    options: menuOptions(),
+    onSelect: (option) => {
+      if (!isGoalMenuAction(option.value))
+        return;
+      api2.ui?.dialog?.clear?.();
+      return runAction(api2, store, option.value);
+    }
+  };
+}
+function showGoalMenu(api2, store) {
+  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogSelect?.(goalMenuProps(api2, store)) ?? goalMenuProps(api2, store));
 }
 function commandFields() {
   return {

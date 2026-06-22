@@ -9,6 +9,8 @@ const GOAL_MENU_SLASH = "goal-menu";
 
 type GoalMenuAction = GoalStartAction | "show" | "pause" | "drop";
 
+const GOAL_MENU_ACTIONS: readonly GoalMenuAction[] = ["show", "set", "replace", "pause", "resume", "drop"];
+
 type SolidView = {
   createElement: (type: string) => any;
   insert: (element: any, child: unknown) => void;
@@ -357,12 +359,15 @@ async function runAction(api: GoalTuiApi, store: GoalStore, action: GoalMenuActi
   return dropGoal(api, store);
 }
 
-function menuOptions(api: GoalTuiApi, store: GoalStore) {
+function isGoalMenuAction(value: unknown): value is GoalMenuAction {
+  return typeof value === "string" && GOAL_MENU_ACTIONS.includes(value as GoalMenuAction);
+}
+
+function menuOptions() {
   const option = (title: string, value: GoalMenuAction, description: string) => ({
     title,
     value,
     description,
-    onSelect: () => runAction(api, store, value),
   });
 
   return [
@@ -375,13 +380,22 @@ function menuOptions(api: GoalTuiApi, store: GoalStore) {
   ];
 }
 
+function goalMenuProps(api: GoalTuiApi, store: GoalStore) {
+  return {
+    title: "Goal",
+    placeholder: "Choose a goal action",
+    options: menuOptions(),
+    onSelect: (option: { value?: unknown }) => {
+      if (!isGoalMenuAction(option.value)) return;
+      api.ui?.dialog?.clear?.();
+      return runAction(api, store, option.value);
+    },
+  };
+}
+
 function showGoalMenu(api: GoalTuiApi, store: GoalStore): void {
   api.ui?.dialog?.replace?.(() =>
-    api.ui?.DialogSelect?.({
-      title: "Goal",
-      placeholder: "Choose a goal action",
-      options: menuOptions(api, store),
-    }) ?? { title: "Goal", options: menuOptions(api, store) }
+    api.ui?.DialogSelect?.(goalMenuProps(api, store)) ?? goalMenuProps(api, store)
   );
 }
 
