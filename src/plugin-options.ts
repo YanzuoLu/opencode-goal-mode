@@ -17,7 +17,7 @@ export interface GoalPluginOptions {
 export function parseOptions(input: unknown): GoalPluginOptions {
   const parsed = schema.parse(input ?? {});
   return {
-    statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal", "state.json"),
+    statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true,
   };

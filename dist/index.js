@@ -14517,7 +14517,7 @@ var schema2 = exports_external.object({
 function parseOptions(input) {
   const parsed = schema2.parse(input ?? {});
   return {
-    statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal", "state.json"),
+    statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true
   };

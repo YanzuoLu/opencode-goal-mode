@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencode-goal",
+      "name": "opencode-goal-mode",
       "dependencies": {
         "@opencode-ai/plugin": "^1.17.7",
         "@opencode-ai/sdk": "^1.17.7",

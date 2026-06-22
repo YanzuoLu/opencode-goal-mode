@@ -1,14 +1,14 @@
 {
-  "name": "opencode-goal",
-  "version": "0.1.0",
+  "name": "opencode-goal-mode",
+  "version": "0.1.1",
   "description": "Persistent goal mode plugin for opencode",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YanzuoLu/opencode-goal.git"
+    "url": "git+https://github.com/YanzuoLu/opencode-goal-mode.git"
   },
-  "homepage": "https://github.com/YanzuoLu/opencode-goal#readme",
+  "homepage": "https://github.com/YanzuoLu/opencode-goal-mode#readme",
   "bugs": {
-    "url": "https://github.com/YanzuoLu/opencode-goal/issues"
+    "url": "https://github.com/YanzuoLu/opencode-goal-mode/issues"
   },
   "type": "module",
   "main": "dist/index.js",

@@ -8,7 +8,7 @@ describe("parseOptions", () => {
 
     expect(options.maxContextBytes).toBe(60000);
     expect(options.autoContinue).toBe(true);
-    expect(options.statePath).toContain("opencode-goal/state.json");
+    expect(options.statePath).toContain("opencode-goal-mode/state.json");
   });
 
   test("accepts explicit values", () => {

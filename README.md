@@ -1,4 +1,4 @@
-# opencode-goal
+# opencode-goal-mode
 
 Persistent goal mode for opencode.
 
@@ -29,12 +29,12 @@ Pin the plugin to a release tag in `opencode.json` so later updates do not chang
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal@git+https://github.com/YanzuoLu/opencode-goal.git#v0.1.0"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.1"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.0`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.1`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -43,12 +43,14 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal@git+https://github.com/YanzuoLu/opencode-goal.git#v0.1.0",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.1",
       { "autoContinue": true }
     ]
   ]
 }
 ```
+
+`statePath` is optional. By default, goal state is stored at `~/.local/share/opencode-goal-mode/state.json`. Override it only when you want isolated state for tests or a specific project.
 
 ## tmux Smoke Test
 
