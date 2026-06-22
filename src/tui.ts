@@ -267,11 +267,7 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
     return;
   }
 
-  const context = renderActiveGoalContext(await store.getSession(sessionID));
-  if (!context) {
-    toast(api, "info", "No active goal");
-    return;
-  }
+  const context = renderActiveGoalContext(await store.getSession(sessionID)) ?? "No active goal";
 
   const view = api.solidView ?? (api.ui?.Dialog ? await loadSolidView() : undefined);
   api.ui?.dialog?.replace?.(() => goalDetailView(api, context, view));

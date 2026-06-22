@@ -268,12 +268,15 @@ describe("goal TUI command", () => {
     expect(api.promptCalls).toHaveLength(0);
   });
 
-  test("show with no active goal emits a toast", async () => {
+  test("show with no active goal opens a dialog and does not toast or prompt", async () => {
     const { api } = await setup();
 
-    await selectGoalAction(api, "show");
+    const dialog = await selectGoalAction(api, "show");
 
-    expect(api.toasts.at(-1)).toMatchObject({ message: "No active goal" });
+    expect(dialog.type).toBe("goal-detail");
+    expect(dialog.props.title).toBe("Active goal");
+    expect(dialog.props.context).toBe("No active goal");
+    expect(api.toasts).toHaveLength(0);
     expect(api.promptCalls).toHaveLength(0);
   });
 

@@ -14758,11 +14758,7 @@ async function showGoal(api2, store) {
     toast(api2, "error", "No active session");
     return;
   }
-  const context = renderActiveGoalContext(await store.getSession(sessionID));
-  if (!context) {
-    toast(api2, "info", "No active goal");
-    return;
-  }
+  const context = renderActiveGoalContext(await store.getSession(sessionID)) ?? "No active goal";
   const view = api2.solidView ?? (api2.ui?.Dialog ? await loadSolidView() : undefined);
   api2.ui?.dialog?.replace?.(() => goalDetailView(api2, context, view));
 }
