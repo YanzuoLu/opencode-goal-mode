@@ -1,6 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin";
 
-import { handleGoalCommand, registerGoalCommand } from "./commands";
 import { createGoalTool } from "./goal-tool";
 import { parseOptions } from "./plugin-options";
 import { GoalRuntimeHooks } from "./runtime";
@@ -14,12 +13,6 @@ const plugin: Plugin = async (input, rawOptions) => {
   return {
     tool: {
       goal: createGoalTool(store),
-    },
-    config: async (config) => {
-      registerGoalCommand(config);
-    },
-    "command.execute.before": async (input, output) => {
-      await handleGoalCommand(input, output, store);
     },
     "chat.message": async (input, output) => {
       await runtime.onChatMessage(input, output);

@@ -4,8 +4,10 @@ Persistent goal mode for opencode.
 
 ## MVP Behavior
 
-- `/goal <objective>` creates an active persisted goal.
-- Real user messages after `/goal` are persisted as supplemental instructions.
+- `/goal` opens the TUI goal menu/dialog. It does not take an inline objective argument.
+- Set, replace, and resume submit model-visible chat context for the active goal.
+- Show, pause, and drop are TUI-only actions and do not submit prompts to the model.
+- Ordinary user messages while a goal is active are persisted as supplemental instructions.
 - Esc interrupt does not pause or drop the goal.
 - Auto continuation runs only after opencode reports the session idle.
 - A continuation turn with no tool calls suppresses further automatic continuation.
@@ -23,18 +25,29 @@ opencode reads config at startup. Restart opencode after changing the plugin pat
 
 ## GitHub Install
 
-Pin the plugin to a release tag in `opencode.json` so later updates do not change existing sessions unexpectedly:
+Pin the server plugin to a release tag in `opencode.json` so later updates do not change existing sessions unexpectedly:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.2"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.2`, not a floating branch. Restart opencode after changing the plugin list.
+Pin the TUI plugin in `tui.json` with the same release tag:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3"
+  ]
+}
+```
+
+Use a specific tag such as `#v0.1.3`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -43,7 +56,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.2",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.3",
       { "autoContinue": true }
     ]
   ]

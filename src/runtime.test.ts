@@ -368,12 +368,12 @@ describe("GoalRuntimeHooks", () => {
 });
 
 describe("plugin runtime wiring", () => {
-  test("returns runtime hooks while preserving command and tool wiring", async () => {
+  test("returns runtime hooks while preserving tool wiring", async () => {
     const hooks = await plugin({ client: { session: { promptAsync: async () => undefined } } } as any);
 
     expect(hooks.tool).toHaveProperty("goal");
-    expect(hooks.config).toBeFunction();
-    expect(hooks["command.execute.before"]).toBeFunction();
+    expect(hooks.config).toBeUndefined();
+    expect(hooks["command.execute.before"]).toBeUndefined();
     expect(hooks["chat.message"]).toBeFunction();
     expect(hooks["experimental.chat.system.transform"]).toBeFunction();
     expect(hooks["experimental.session.compacting"]).toBeFunction();
@@ -381,23 +381,19 @@ describe("plugin runtime wiring", () => {
     expect(hooks.event).toBeFunction();
   });
 
-  test("uses statePath option for persisted command state", async () => {
+  test("uses statePath option for persisted tool state", async () => {
     const dir = await mkdtemp(join(tmpdir(), "opencode-goal-plugin-"));
     const statePath = join(dir, "custom-state.json");
+    await new GoalStore(statePath).createGoal("s1", "Ship custom state");
     const hooks = await plugin(
       { client: { session: { promptAsync: async () => undefined } } } as any,
       { statePath, maxContextBytes: 60000, autoContinue: true },
     );
-    const output = { parts: [] };
-    const runCommand = hooks["command.execute.before"];
-    if (!runCommand) throw new Error("missing command hook");
+    const goalTool = hooks.tool?.goal;
+    if (!goalTool) throw new Error("missing goal tool");
 
-    await runCommand(
-      { command: "goal", sessionID: "s1", arguments: "Ship custom state" },
-      output,
-    );
+    const result = await goalTool.execute({ op: "get" }, { sessionID: "s1" } as any);
 
-    const state = await new GoalStore(statePath).getSession("s1");
-    expect(state.goal?.objective).toBe("Ship custom state");
+    expect(String(result)).toContain("Ship custom state");
   });
 });

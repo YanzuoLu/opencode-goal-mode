@@ -13,9 +13,6 @@ var __export = (target, all) => {
     });
 };
 
-// src/goal-tool.ts
-import { tool } from "@opencode-ai/plugin/tool";
-
 // src/prompts.ts
 function escapeXml(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
@@ -77,68 +74,6 @@ function renderCompactionContext(state) {
   return `Preserve this active goal context in the conversation summary. Do not omit supplemental instructions.
 
 ${rendered}`;
-}
-
-// src/goal-tool.ts
-var schema = tool.schema;
-function createGoalTool(store) {
-  return tool({
-    description: [
-      "Inspect or update the active goal.",
-      "Call op=complete only when the active goal is actually finished.",
-      "Do not claim the goal is complete without calling this tool."
-    ].join(" "),
-    args: {
-      op: schema.enum(["get", "complete", "drop", "pause", "resume"]),
-      summary: schema.string().optional()
-    },
-    async execute(args, context) {
-      const state = await store.getSession(context.sessionID);
-      if (!state.goal)
-        return "No goal exists for this session.";
-      if (args.op === "get") {
-        return renderActiveGoalContext(state, {
-          includeCompactionNotice: state.flags.compactionNoticePending
-        }) ?? "No active goal.";
-      }
-      if (args.op === "complete") {
-        await store.updateGoal(context.sessionID, (goal) => {
-          goal.status = "complete";
-          goal.completedAt = Date.now();
-        });
-        await store.setFlags(context.sessionID, {
-          autoContinuationSuppressed: true,
-          continuationInFlight: false
-        });
-        return `Goal completed.${args.summary ? ` Summary: ${args.summary}` : ""}`;
-      }
-      if (args.op === "drop") {
-        await store.updateGoal(context.sessionID, (goal) => {
-          goal.status = "dropped";
-          goal.droppedAt = Date.now();
-        });
-        await store.setFlags(context.sessionID, {
-          autoContinuationSuppressed: true,
-          continuationInFlight: false
-        });
-        return `Goal dropped.${args.summary ? ` Reason: ${args.summary}` : ""}`;
-      }
-      if (args.op === "pause") {
-        await store.updateGoal(context.sessionID, (goal) => {
-          if (goal.status === "active")
-            goal.status = "paused";
-        });
-        await store.setFlags(context.sessionID, { autoContinuationSuppressed: true });
-        return "Goal paused.";
-      }
-      await store.updateGoal(context.sessionID, (goal) => {
-        if (goal.status === "paused")
-          goal.status = "active";
-      });
-      await store.setFlags(context.sessionID, { autoContinuationSuppressed: false });
-      return "Goal resumed.";
-    }
-  });
 }
 
 // src/plugin-options.ts
@@ -906,8 +841,8 @@ function mergeDefs(...defs) {
   }
   return Object.defineProperties({}, mergedDescriptors);
 }
-function cloneDef(schema2) {
-  return mergeDefs(schema2._zod.def);
+function cloneDef(schema) {
+  return mergeDefs(schema._zod.def);
 }
 function getElementAtPath(obj, path) {
   if (!path)
@@ -1128,14 +1063,14 @@ var BIGINT_FORMAT_RANGES = {
   int64: [/* @__PURE__ */ BigInt("-9223372036854775808"), /* @__PURE__ */ BigInt("9223372036854775807")],
   uint64: [/* @__PURE__ */ BigInt(0), /* @__PURE__ */ BigInt("18446744073709551615")]
 };
-function pick(schema2, mask) {
-  const currDef = schema2._zod.def;
+function pick(schema, mask) {
+  const currDef = schema._zod.def;
   const checks = currDef.checks;
   const hasChecks = checks && checks.length > 0;
   if (hasChecks) {
     throw new Error(".pick() cannot be used on object schemas containing refinements");
   }
-  const def = mergeDefs(schema2._zod.def, {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
       const newShape = {};
       for (const key in mask) {
@@ -1151,18 +1086,18 @@ function pick(schema2, mask) {
     },
     checks: []
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
-function omit(schema2, mask) {
-  const currDef = schema2._zod.def;
+function omit(schema, mask) {
+  const currDef = schema._zod.def;
   const checks = currDef.checks;
   const hasChecks = checks && checks.length > 0;
   if (hasChecks) {
     throw new Error(".omit() cannot be used on object schemas containing refinements");
   }
-  const def = mergeDefs(schema2._zod.def, {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
-      const newShape = { ...schema2._zod.def.shape };
+      const newShape = { ...schema._zod.def.shape };
       for (const key in mask) {
         if (!(key in currDef.shape)) {
           throw new Error(`Unrecognized key: "${key}"`);
@@ -1176,43 +1111,43 @@ function omit(schema2, mask) {
     },
     checks: []
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
-function extend(schema2, shape) {
+function extend(schema, shape) {
   if (!isPlainObject(shape)) {
     throw new Error("Invalid input to extend: expected a plain object");
   }
-  const checks = schema2._zod.def.checks;
+  const checks = schema._zod.def.checks;
   const hasChecks = checks && checks.length > 0;
   if (hasChecks) {
-    const existingShape = schema2._zod.def.shape;
+    const existingShape = schema._zod.def.shape;
     for (const key in shape) {
       if (Object.getOwnPropertyDescriptor(existingShape, key) !== undefined) {
         throw new Error("Cannot overwrite keys on object schemas containing refinements. Use `.safeExtend()` instead.");
       }
     }
   }
-  const def = mergeDefs(schema2._zod.def, {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
-      const _shape = { ...schema2._zod.def.shape, ...shape };
+      const _shape = { ...schema._zod.def.shape, ...shape };
       assignProp(this, "shape", _shape);
       return _shape;
     }
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
-function safeExtend(schema2, shape) {
+function safeExtend(schema, shape) {
   if (!isPlainObject(shape)) {
     throw new Error("Invalid input to safeExtend: expected a plain object");
   }
-  const def = mergeDefs(schema2._zod.def, {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
-      const _shape = { ...schema2._zod.def.shape, ...shape };
+      const _shape = { ...schema._zod.def.shape, ...shape };
       assignProp(this, "shape", _shape);
       return _shape;
     }
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
 function merge(a, b) {
   if (a._zod.def.checks?.length) {
@@ -1231,16 +1166,16 @@ function merge(a, b) {
   });
   return clone(a, def);
 }
-function partial(Class, schema2, mask) {
-  const currDef = schema2._zod.def;
+function partial(Class, schema, mask) {
+  const currDef = schema._zod.def;
   const checks = currDef.checks;
   const hasChecks = checks && checks.length > 0;
   if (hasChecks) {
     throw new Error(".partial() cannot be used on object schemas containing refinements");
   }
-  const def = mergeDefs(schema2._zod.def, {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
-      const oldShape = schema2._zod.def.shape;
+      const oldShape = schema._zod.def.shape;
       const shape = { ...oldShape };
       if (mask) {
         for (const key in mask) {
@@ -1267,12 +1202,12 @@ function partial(Class, schema2, mask) {
     },
     checks: []
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
-function required(Class, schema2, mask) {
-  const def = mergeDefs(schema2._zod.def, {
+function required(Class, schema, mask) {
+  const def = mergeDefs(schema._zod.def, {
     get shape() {
-      const oldShape = schema2._zod.def.shape;
+      const oldShape = schema._zod.def.shape;
       const shape = { ...oldShape };
       if (mask) {
         for (const key in mask) {
@@ -1298,7 +1233,7 @@ function required(Class, schema2, mask) {
       return shape;
     }
   });
-  return clone(schema2, def);
+  return clone(schema, def);
 }
 function aborted(x, startIndex = 0) {
   if (x.aborted === true)
@@ -1578,9 +1513,9 @@ function prettifyError(error) {
 }
 
 // node_modules/zod/v4/core/parse.js
-var _parse = (_Err) => (schema2, value, _ctx, _params) => {
+var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
-  const result = schema2._zod.run({ value, issues: [] }, ctx);
+  const result = schema._zod.run({ value, issues: [] }, ctx);
   if (result instanceof Promise) {
     throw new $ZodAsyncError;
   }
@@ -1592,9 +1527,9 @@ var _parse = (_Err) => (schema2, value, _ctx, _params) => {
   return result.value;
 };
 var parse = /* @__PURE__ */ _parse($ZodRealError);
-var _parseAsync = (_Err) => async (schema2, value, _ctx, params) => {
+var _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
   const ctx = _ctx ? { ..._ctx, async: true } : { async: true };
-  let result = schema2._zod.run({ value, issues: [] }, ctx);
+  let result = schema._zod.run({ value, issues: [] }, ctx);
   if (result instanceof Promise)
     result = await result;
   if (result.issues.length) {
@@ -1605,9 +1540,9 @@ var _parseAsync = (_Err) => async (schema2, value, _ctx, params) => {
   return result.value;
 };
 var parseAsync = /* @__PURE__ */ _parseAsync($ZodRealError);
-var _safeParse = (_Err) => (schema2, value, _ctx) => {
+var _safeParse = (_Err) => (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
-  const result = schema2._zod.run({ value, issues: [] }, ctx);
+  const result = schema._zod.run({ value, issues: [] }, ctx);
   if (result instanceof Promise) {
     throw new $ZodAsyncError;
   }
@@ -1617,9 +1552,9 @@ var _safeParse = (_Err) => (schema2, value, _ctx) => {
   } : { success: true, data: result.value };
 };
 var safeParse = /* @__PURE__ */ _safeParse($ZodRealError);
-var _safeParseAsync = (_Err) => async (schema2, value, _ctx) => {
+var _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, async: true } : { async: true };
-  let result = schema2._zod.run({ value, issues: [] }, ctx);
+  let result = schema._zod.run({ value, issues: [] }, ctx);
   if (result instanceof Promise)
     result = await result;
   return result.issues.length ? {
@@ -1628,40 +1563,40 @@ var _safeParseAsync = (_Err) => async (schema2, value, _ctx) => {
   } : { success: true, data: result.value };
 };
 var safeParseAsync = /* @__PURE__ */ _safeParseAsync($ZodRealError);
-var _encode = (_Err) => (schema2, value, _ctx) => {
+var _encode = (_Err) => (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, direction: "backward" } : { direction: "backward" };
-  return _parse(_Err)(schema2, value, ctx);
+  return _parse(_Err)(schema, value, ctx);
 };
 var encode = /* @__PURE__ */ _encode($ZodRealError);
-var _decode = (_Err) => (schema2, value, _ctx) => {
-  return _parse(_Err)(schema2, value, _ctx);
+var _decode = (_Err) => (schema, value, _ctx) => {
+  return _parse(_Err)(schema, value, _ctx);
 };
 var decode = /* @__PURE__ */ _decode($ZodRealError);
-var _encodeAsync = (_Err) => async (schema2, value, _ctx) => {
+var _encodeAsync = (_Err) => async (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, direction: "backward" } : { direction: "backward" };
-  return _parseAsync(_Err)(schema2, value, ctx);
+  return _parseAsync(_Err)(schema, value, ctx);
 };
 var encodeAsync = /* @__PURE__ */ _encodeAsync($ZodRealError);
-var _decodeAsync = (_Err) => async (schema2, value, _ctx) => {
-  return _parseAsync(_Err)(schema2, value, _ctx);
+var _decodeAsync = (_Err) => async (schema, value, _ctx) => {
+  return _parseAsync(_Err)(schema, value, _ctx);
 };
 var decodeAsync = /* @__PURE__ */ _decodeAsync($ZodRealError);
-var _safeEncode = (_Err) => (schema2, value, _ctx) => {
+var _safeEncode = (_Err) => (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, direction: "backward" } : { direction: "backward" };
-  return _safeParse(_Err)(schema2, value, ctx);
+  return _safeParse(_Err)(schema, value, ctx);
 };
 var safeEncode = /* @__PURE__ */ _safeEncode($ZodRealError);
-var _safeDecode = (_Err) => (schema2, value, _ctx) => {
-  return _safeParse(_Err)(schema2, value, _ctx);
+var _safeDecode = (_Err) => (schema, value, _ctx) => {
+  return _safeParse(_Err)(schema, value, _ctx);
 };
 var safeDecode = /* @__PURE__ */ _safeDecode($ZodRealError);
-var _safeEncodeAsync = (_Err) => async (schema2, value, _ctx) => {
+var _safeEncodeAsync = (_Err) => async (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, direction: "backward" } : { direction: "backward" };
-  return _safeParseAsync(_Err)(schema2, value, ctx);
+  return _safeParseAsync(_Err)(schema, value, ctx);
 };
 var safeEncodeAsync = /* @__PURE__ */ _safeEncodeAsync($ZodRealError);
-var _safeDecodeAsync = (_Err) => async (schema2, value, _ctx) => {
-  return _safeParseAsync(_Err)(schema2, value, _ctx);
+var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
+  return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 var safeDecodeAsync = /* @__PURE__ */ _safeDecodeAsync($ZodRealError);
 // node_modules/zod/v4/core/regexes.js
@@ -3232,9 +3167,9 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     for (const key of normalized.keys) {
       const id = ids[key];
       const k = esc(key);
-      const schema2 = shape[key];
-      const isOptionalIn = schema2?._zod?.optin === "optional";
-      const isOptionalOut = schema2?._zod?.optout === "optional";
+      const schema = shape[key];
+      const isOptionalIn = schema?._zod?.optin === "optional";
+      const isOptionalOut = schema?._zod?.optout === "optional";
       doc.write(`const ${id} = ${parseStr(key)};`);
       if (isOptionalIn && isOptionalOut) {
         doc.write(`
@@ -3246,7 +3181,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
             })));
           }
         }
-        
+
         if (${id}.value === undefined) {
           if (${k} in input) {
             newResult[${k}] = undefined;
@@ -3254,7 +3189,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
         } else {
           newResult[${k}] = ${id}.value;
         }
-        
+
       `);
       } else if (!isOptionalIn) {
         doc.write(`
@@ -3291,7 +3226,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
             path: iss.path ? [${k}, ...iss.path] : [${k}]
           })));
         }
-        
+
         if (${id}.value === undefined) {
           if (${k} in input) {
             newResult[${k}] = undefined;
@@ -3299,7 +3234,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
         } else {
           newResult[${k}] = ${id}.value;
         }
-        
+
       `);
       }
     }
@@ -10410,11 +10345,11 @@ class $ZodRegistry {
     this._map = new WeakMap;
     this._idmap = new Map;
   }
-  add(schema2, ..._meta) {
+  add(schema, ..._meta) {
     const meta = _meta[0];
-    this._map.set(schema2, meta);
+    this._map.set(schema, meta);
     if (meta && typeof meta === "object" && "id" in meta) {
-      this._idmap.set(meta.id, schema2);
+      this._idmap.set(meta.id, schema);
     }
     return this;
   }
@@ -10423,26 +10358,26 @@ class $ZodRegistry {
     this._idmap = new Map;
     return this;
   }
-  remove(schema2) {
-    const meta = this._map.get(schema2);
+  remove(schema) {
+    const meta = this._map.get(schema);
     if (meta && typeof meta === "object" && "id" in meta) {
       this._idmap.delete(meta.id);
     }
-    this._map.delete(schema2);
+    this._map.delete(schema);
     return this;
   }
-  get(schema2) {
-    const p = schema2._zod.parent;
+  get(schema) {
+    const p = schema._zod.parent;
     if (p) {
       const pm = { ...this.get(p) ?? {} };
       delete pm.id;
-      const f = { ...pm, ...this._map.get(schema2) };
+      const f = { ...pm, ...this._map.get(schema) };
       return Object.keys(f).length ? f : undefined;
     }
-    return this._map.get(schema2);
+    return this._map.get(schema);
   }
-  has(schema2) {
-    return this._map.has(schema2);
+  has(schema) {
+    return this._map.has(schema);
   }
 }
 function registry() {
@@ -11020,11 +10955,11 @@ function _endsWith(suffix, params) {
     suffix
   });
 }
-function _property(property, schema2, params) {
+function _property(property, schema, params) {
   return new $ZodCheckProperty({
     check: "property",
     property,
-    schema: schema2,
+    schema,
     ...normalizeParams(params)
   });
 }
@@ -11237,22 +11172,22 @@ function _promise(Class2, innerType) {
 function _custom(Class2, fn, _params) {
   const norm = normalizeParams(_params);
   norm.abort ?? (norm.abort = true);
-  const schema2 = new Class2({
+  const schema = new Class2({
     type: "custom",
     check: "custom",
     fn,
     ...norm
   });
-  return schema2;
+  return schema;
 }
 function _refine(Class2, fn, _params) {
-  const schema2 = new Class2({
+  const schema = new Class2({
     type: "custom",
     check: "custom",
     fn,
     ...normalizeParams(_params)
   });
-  return schema2;
+  return schema;
 }
 function _superRefine(fn, params) {
   const ch = _check((payload) => {
@@ -11391,40 +11326,40 @@ function initializeContext(params) {
     external: params?.external ?? undefined
   };
 }
-function process2(schema2, ctx, _params = { path: [], schemaPath: [] }) {
+function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
   var _a3;
-  const def = schema2._zod.def;
-  const seen = ctx.seen.get(schema2);
+  const def = schema._zod.def;
+  const seen = ctx.seen.get(schema);
   if (seen) {
     seen.count++;
-    const isCycle = _params.schemaPath.includes(schema2);
+    const isCycle = _params.schemaPath.includes(schema);
     if (isCycle) {
       seen.cycle = _params.path;
     }
     return seen.schema;
   }
   const result = { schema: {}, count: 1, cycle: undefined, path: _params.path };
-  ctx.seen.set(schema2, result);
-  const overrideSchema = schema2._zod.toJSONSchema?.();
+  ctx.seen.set(schema, result);
+  const overrideSchema = schema._zod.toJSONSchema?.();
   if (overrideSchema) {
     result.schema = overrideSchema;
   } else {
     const params = {
       ..._params,
-      schemaPath: [..._params.schemaPath, schema2],
+      schemaPath: [..._params.schemaPath, schema],
       path: _params.path
     };
-    if (schema2._zod.processJSONSchema) {
-      schema2._zod.processJSONSchema(ctx, result.schema, params);
+    if (schema._zod.processJSONSchema) {
+      schema._zod.processJSONSchema(ctx, result.schema, params);
     } else {
       const _json = result.schema;
       const processor = ctx.processors[def.type];
       if (!processor) {
         throw new Error(`[toJSONSchema]: Non-representable type encountered: ${def.type}`);
       }
-      processor(schema2, ctx, _json, params);
+      processor(schema, ctx, _json, params);
     }
-    const parent = schema2._zod.parent;
+    const parent = schema._zod.parent;
     if (parent) {
       if (!result.ref)
         result.ref = parent;
@@ -11432,21 +11367,21 @@ function process2(schema2, ctx, _params = { path: [], schemaPath: [] }) {
       ctx.seen.get(parent).isParent = true;
     }
   }
-  const meta2 = ctx.metadataRegistry.get(schema2);
+  const meta2 = ctx.metadataRegistry.get(schema);
   if (meta2)
     Object.assign(result.schema, meta2);
-  if (ctx.io === "input" && isTransforming(schema2)) {
+  if (ctx.io === "input" && isTransforming(schema)) {
     delete result.schema.examples;
     delete result.schema.default;
   }
   if (ctx.io === "input" && "_prefault" in result.schema)
     (_a3 = result.schema).default ?? (_a3.default = result.schema._prefault);
   delete result.schema._prefault;
-  const _result = ctx.seen.get(schema2);
+  const _result = ctx.seen.get(schema);
   return _result.schema;
 }
-function extractDefs(ctx, schema2) {
-  const root = ctx.seen.get(schema2);
+function extractDefs(ctx, schema) {
+  const root = ctx.seen.get(schema);
   if (!root)
     throw new Error("Unprocessed schema. This is a bug in Zod.");
   const idToSchema = new Map;
@@ -11489,11 +11424,11 @@ function extractDefs(ctx, schema2) {
     seen.def = { ...seen.schema };
     if (defId)
       seen.defId = defId;
-    const schema3 = seen.schema;
-    for (const key in schema3) {
-      delete schema3[key];
+    const schema2 = seen.schema;
+    for (const key in schema2) {
+      delete schema2[key];
     }
-    schema3.$ref = ref;
+    schema2.$ref = ref;
   };
   if (ctx.cycles === "throw") {
     for (const entry of ctx.seen.entries()) {
@@ -11505,13 +11440,13 @@ function extractDefs(ctx, schema2) {
   }
   for (const entry of ctx.seen.entries()) {
     const seen = entry[1];
-    if (schema2 === entry[0]) {
+    if (schema === entry[0]) {
       extractToDef(entry);
       continue;
     }
     if (ctx.external) {
       const ext = ctx.external.registry.get(entry[0])?.id;
-      if (schema2 !== entry[0] && ext) {
+      if (schema !== entry[0] && ext) {
         extractToDef(entry);
         continue;
       }
@@ -11533,16 +11468,16 @@ function extractDefs(ctx, schema2) {
     }
   }
 }
-function finalize(ctx, schema2) {
-  const root = ctx.seen.get(schema2);
+function finalize(ctx, schema) {
+  const root = ctx.seen.get(schema);
   if (!root)
     throw new Error("Unprocessed schema. This is a bug in Zod.");
   const flattenRef = (zodSchema) => {
     const seen = ctx.seen.get(zodSchema);
     if (seen.ref === null)
       return;
-    const schema3 = seen.def ?? seen.schema;
-    const _cached = { ...schema3 };
+    const schema2 = seen.def ?? seen.schema;
+    const _cached = { ...schema2 };
     const ref = seen.ref;
     seen.ref = null;
     if (ref) {
@@ -11550,28 +11485,28 @@ function finalize(ctx, schema2) {
       const refSeen = ctx.seen.get(ref);
       const refSchema = refSeen.schema;
       if (refSchema.$ref && (ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0")) {
-        schema3.allOf = schema3.allOf ?? [];
-        schema3.allOf.push(refSchema);
+        schema2.allOf = schema2.allOf ?? [];
+        schema2.allOf.push(refSchema);
       } else {
-        Object.assign(schema3, refSchema);
+        Object.assign(schema2, refSchema);
       }
-      Object.assign(schema3, _cached);
+      Object.assign(schema2, _cached);
       const isParentRef = zodSchema._zod.parent === ref;
       if (isParentRef) {
-        for (const key in schema3) {
+        for (const key in schema2) {
           if (key === "$ref" || key === "allOf")
             continue;
           if (!(key in _cached)) {
-            delete schema3[key];
+            delete schema2[key];
           }
         }
       }
       if (refSchema.$ref && refSeen.def) {
-        for (const key in schema3) {
+        for (const key in schema2) {
           if (key === "$ref" || key === "allOf")
             continue;
-          if (key in refSeen.def && JSON.stringify(schema3[key]) === JSON.stringify(refSeen.def[key])) {
-            delete schema3[key];
+          if (key in refSeen.def && JSON.stringify(schema2[key]) === JSON.stringify(refSeen.def[key])) {
+            delete schema2[key];
           }
         }
       }
@@ -11581,13 +11516,13 @@ function finalize(ctx, schema2) {
       flattenRef(parent);
       const parentSeen = ctx.seen.get(parent);
       if (parentSeen?.schema.$ref) {
-        schema3.$ref = parentSeen.schema.$ref;
+        schema2.$ref = parentSeen.schema.$ref;
         if (parentSeen.def) {
-          for (const key in schema3) {
+          for (const key in schema2) {
             if (key === "$ref" || key === "allOf")
               continue;
-            if (key in parentSeen.def && JSON.stringify(schema3[key]) === JSON.stringify(parentSeen.def[key])) {
-              delete schema3[key];
+            if (key in parentSeen.def && JSON.stringify(schema2[key]) === JSON.stringify(parentSeen.def[key])) {
+              delete schema2[key];
             }
           }
         }
@@ -11595,7 +11530,7 @@ function finalize(ctx, schema2) {
     }
     ctx.override({
       zodSchema,
-      jsonSchema: schema3,
+      jsonSchema: schema2,
       path: seen.path ?? []
     });
   };
@@ -11611,13 +11546,13 @@ function finalize(ctx, schema2) {
     result.$schema = "http://json-schema.org/draft-04/schema#";
   } else if (ctx.target === "openapi-3.0") {}
   if (ctx.external?.uri) {
-    const id = ctx.external.registry.get(schema2)?.id;
+    const id = ctx.external.registry.get(schema)?.id;
     if (!id)
       throw new Error("Schema is missing an `id` property");
     result.$id = ctx.external.uri(id);
   }
   Object.assign(result, root.def ?? root.schema);
-  const rootMetaId = ctx.metadataRegistry.get(schema2)?.id;
+  const rootMetaId = ctx.metadataRegistry.get(schema)?.id;
   if (rootMetaId !== undefined && result.id === rootMetaId)
     delete result.id;
   const defs = ctx.external?.defs ?? {};
@@ -11642,10 +11577,10 @@ function finalize(ctx, schema2) {
     const finalized = JSON.parse(JSON.stringify(result));
     Object.defineProperty(finalized, "~standard", {
       value: {
-        ...schema2["~standard"],
+        ...schema["~standard"],
         jsonSchema: {
-          input: createStandardJSONSchemaMethod(schema2, "input", ctx.processors),
-          output: createStandardJSONSchemaMethod(schema2, "output", ctx.processors)
+          input: createStandardJSONSchemaMethod(schema, "input", ctx.processors),
+          output: createStandardJSONSchemaMethod(schema, "output", ctx.processors)
         }
       },
       enumerable: false,
@@ -11709,18 +11644,18 @@ function isTransforming(_schema, _ctx) {
   }
   return false;
 }
-var createToJSONSchemaMethod = (schema2, processors = {}) => (params) => {
+var createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
   const ctx = initializeContext({ ...params, processors });
-  process2(schema2, ctx);
-  extractDefs(ctx, schema2);
-  return finalize(ctx, schema2);
+  process2(schema, ctx);
+  extractDefs(ctx, schema);
+  return finalize(ctx, schema);
 };
-var createStandardJSONSchemaMethod = (schema2, io, processors = {}) => (params) => {
+var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) => {
   const { libraryOptions, target } = params ?? {};
   const ctx = initializeContext({ ...libraryOptions ?? {}, target, io, processors });
-  process2(schema2, ctx);
-  extractDefs(ctx, schema2);
-  return finalize(ctx, schema2);
+  process2(schema, ctx);
+  extractDefs(ctx, schema);
+  return finalize(ctx, schema);
 };
 // node_modules/zod/v4/core/json-schema-processors.js
 var formatMap = {
@@ -11730,10 +11665,10 @@ var formatMap = {
   json_string: "json-string",
   regex: ""
 };
-var stringProcessor = (schema2, ctx, _json, _params) => {
+var stringProcessor = (schema, ctx, _json, _params) => {
   const json = _json;
   json.type = "string";
-  const { minimum, maximum, format, patterns, contentEncoding } = schema2._zod.bag;
+  const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
   if (typeof minimum === "number")
     json.minLength = minimum;
   if (typeof maximum === "number")
@@ -11762,9 +11697,9 @@ var stringProcessor = (schema2, ctx, _json, _params) => {
     }
   }
 };
-var numberProcessor = (schema2, ctx, _json, _params) => {
+var numberProcessor = (schema, ctx, _json, _params) => {
   const json = _json;
-  const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = schema2._zod.bag;
+  const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = schema._zod.bag;
   if (typeof format === "string" && format.includes("int"))
     json.type = "integer";
   else
@@ -11837,8 +11772,8 @@ var dateProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("Date cannot be represented in JSON Schema");
   }
 };
-var enumProcessor = (schema2, _ctx, json, _params) => {
-  const def = schema2._zod.def;
+var enumProcessor = (schema, _ctx, json, _params) => {
+  const def = schema._zod.def;
   const values = getEnumValues(def.entries);
   if (values.every((v) => typeof v === "number"))
     json.type = "number";
@@ -11846,8 +11781,8 @@ var enumProcessor = (schema2, _ctx, json, _params) => {
     json.type = "string";
   json.enum = values;
 };
-var literalProcessor = (schema2, ctx, json, _params) => {
-  const def = schema2._zod.def;
+var literalProcessor = (schema, ctx, json, _params) => {
+  const def = schema._zod.def;
   const vals = [];
   for (const val of def.values) {
     if (val === undefined) {
@@ -11889,22 +11824,22 @@ var nanProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("NaN cannot be represented in JSON Schema");
   }
 };
-var templateLiteralProcessor = (schema2, _ctx, json, _params) => {
+var templateLiteralProcessor = (schema, _ctx, json, _params) => {
   const _json = json;
-  const pattern = schema2._zod.pattern;
+  const pattern = schema._zod.pattern;
   if (!pattern)
     throw new Error("Pattern not found in template literal");
   _json.type = "string";
   _json.pattern = pattern.source;
 };
-var fileProcessor = (schema2, _ctx, json, _params) => {
+var fileProcessor = (schema, _ctx, json, _params) => {
   const _json = json;
   const file = {
     type: "string",
     format: "binary",
     contentEncoding: "binary"
   };
-  const { minimum, maximum, mime } = schema2._zod.bag;
+  const { minimum, maximum, mime } = schema._zod.bag;
   if (minimum !== undefined)
     file.minLength = minimum;
   if (maximum !== undefined)
@@ -11949,10 +11884,10 @@ var setProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("Set cannot be represented in JSON Schema");
   }
 };
-var arrayProcessor = (schema2, ctx, _json, params) => {
+var arrayProcessor = (schema, ctx, _json, params) => {
   const json = _json;
-  const def = schema2._zod.def;
-  const { minimum, maximum } = schema2._zod.bag;
+  const def = schema._zod.def;
+  const { minimum, maximum } = schema._zod.bag;
   if (typeof minimum === "number")
     json.minItems = minimum;
   if (typeof maximum === "number")
@@ -11963,9 +11898,9 @@ var arrayProcessor = (schema2, ctx, _json, params) => {
     path: [...params.path, "items"]
   });
 };
-var objectProcessor = (schema2, ctx, _json, params) => {
+var objectProcessor = (schema, ctx, _json, params) => {
   const json = _json;
-  const def = schema2._zod.def;
+  const def = schema._zod.def;
   json.type = "object";
   json.properties = {};
   const shape = def.shape;
@@ -11999,8 +11934,8 @@ var objectProcessor = (schema2, ctx, _json, params) => {
     });
   }
 };
-var unionProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var unionProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
   const options = def.options.map((x, i) => process2(x, ctx, {
     ...params,
@@ -12012,8 +11947,8 @@ var unionProcessor = (schema2, ctx, json, params) => {
     json.anyOf = options;
   }
 };
-var intersectionProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var intersectionProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   const a = process2(def.left, ctx, {
     ...params,
     path: [...params.path, "allOf", 0]
@@ -12029,9 +11964,9 @@ var intersectionProcessor = (schema2, ctx, json, params) => {
   ];
   json.allOf = allOf;
 };
-var tupleProcessor = (schema2, ctx, _json, params) => {
+var tupleProcessor = (schema, ctx, _json, params) => {
   const json = _json;
-  const def = schema2._zod.def;
+  const def = schema._zod.def;
   json.type = "array";
   const prefixPath = ctx.target === "draft-2020-12" ? "prefixItems" : "items";
   const restPath = ctx.target === "draft-2020-12" ? "items" : ctx.target === "openapi-3.0" ? "items" : "additionalItems";
@@ -12065,15 +12000,15 @@ var tupleProcessor = (schema2, ctx, _json, params) => {
       json.additionalItems = rest;
     }
   }
-  const { minimum, maximum } = schema2._zod.bag;
+  const { minimum, maximum } = schema._zod.bag;
   if (typeof minimum === "number")
     json.minItems = minimum;
   if (typeof maximum === "number")
     json.maxItems = maximum;
 };
-var recordProcessor = (schema2, ctx, _json, params) => {
+var recordProcessor = (schema, ctx, _json, params) => {
   const json = _json;
-  const def = schema2._zod.def;
+  const def = schema._zod.def;
   json.type = "object";
   const keyType = def.keyType;
   const keyBag = keyType._zod.bag;
@@ -12107,10 +12042,10 @@ var recordProcessor = (schema2, ctx, _json, params) => {
     }
   }
 };
-var nullableProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var nullableProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   const inner = process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
     json.nullable = true;
@@ -12118,31 +12053,31 @@ var nullableProcessor = (schema2, ctx, json, params) => {
     json.anyOf = [inner, { type: "null" }];
   }
 };
-var nonoptionalProcessor = (schema2, ctx, _json, params) => {
-  const def = schema2._zod.def;
+var nonoptionalProcessor = (schema, ctx, _json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
-var defaultProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var defaultProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.default = JSON.parse(JSON.stringify(def.defaultValue));
 };
-var prefaultProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var prefaultProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   if (ctx.io === "input")
     json._prefault = JSON.parse(JSON.stringify(def.defaultValue));
 };
-var catchProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var catchProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   let catchValue;
   try {
@@ -12152,37 +12087,37 @@ var catchProcessor = (schema2, ctx, json, params) => {
   }
   json.default = catchValue;
 };
-var pipeProcessor = (schema2, ctx, _json, params) => {
-  const def = schema2._zod.def;
+var pipeProcessor = (schema, ctx, _json, params) => {
+  const def = schema._zod.def;
   const inIsTransform = def.in._zod.traits.has("$ZodTransform");
   const innerType = ctx.io === "input" ? inIsTransform ? def.out : def.in : def.out;
   process2(innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
-var readonlyProcessor = (schema2, ctx, json, params) => {
-  const def = schema2._zod.def;
+var readonlyProcessor = (schema, ctx, json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.readOnly = true;
 };
-var promiseProcessor = (schema2, ctx, _json, params) => {
-  const def = schema2._zod.def;
+var promiseProcessor = (schema, ctx, _json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
-var optionalProcessor = (schema2, ctx, _json, params) => {
-  const def = schema2._zod.def;
+var optionalProcessor = (schema, ctx, _json, params) => {
+  const def = schema._zod.def;
   process2(def.innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
-var lazyProcessor = (schema2, ctx, _json, params) => {
-  const innerType = schema2._zod.innerType;
+var lazyProcessor = (schema, ctx, _json, params) => {
+  const innerType = schema._zod.innerType;
   process2(innerType, ctx, params);
-  const seen = ctx.seen.get(schema2);
+  const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
 var allProcessors = {
@@ -12232,8 +12167,8 @@ function toJSONSchema(input, params) {
     const ctx2 = initializeContext({ ...params, processors: allProcessors });
     const defs = {};
     for (const entry of registry2._idmap.entries()) {
-      const [_, schema2] = entry;
-      process2(schema2, ctx2);
+      const [_, schema] = entry;
+      process2(schema, ctx2);
     }
     const schemas = {};
     const external = {
@@ -12243,9 +12178,9 @@ function toJSONSchema(input, params) {
     };
     ctx2.external = external;
     for (const entry of registry2._idmap.entries()) {
-      const [key, schema2] = entry;
-      extractDefs(ctx2, schema2);
-      schemas[key] = finalize(ctx2, schema2);
+      const [key, schema] = entry;
+      extractDefs(ctx2, schema);
+      schemas[key] = finalize(ctx2, schema);
     }
     if (Object.keys(defs).length > 0) {
       const defsSegment = ctx2.target === "draft-2020-12" ? "$defs" : "definitions";
@@ -12301,10 +12236,10 @@ class JSONSchemaGenerator {
       ...params?.io && { io: params.io }
     });
   }
-  process(schema2, _params = { path: [], schemaPath: [] }) {
-    return process2(schema2, this.ctx, _params);
+  process(schema, _params = { path: [], schemaPath: [] }) {
+    return process2(schema, this.ctx, _params);
   }
-  emit(schema2, _params) {
+  emit(schema, _params) {
     if (_params) {
       if (_params.cycles)
         this.ctx.cycles = _params.cycles;
@@ -12313,8 +12248,8 @@ class JSONSchemaGenerator {
       if (_params.external)
         this.ctx.external = _params.external;
     }
-    extractDefs(this.ctx, schema2);
-    const result = finalize(this.ctx, schema2);
+    extractDefs(this.ctx, schema);
+    const result = finalize(this.ctx, schema);
     const { "~standard": _, ...plainResult } = result;
     return plainResult;
   }
@@ -13272,8 +13207,8 @@ var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
 function array(element, params) {
   return _array(ZodArray, element, params);
 }
-function keyof(schema2) {
-  const shape = schema2._zod.def.shape;
+function keyof(schema) {
+  const shape = schema._zod.def.shape;
   return _enum2(Object.keys(shape));
 }
 var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
@@ -13896,11 +13831,11 @@ function json(params) {
   });
   return jsonSchema;
 }
-function preprocess(fn, schema2) {
+function preprocess(fn, schema) {
   return new ZodPreprocess({
     type: "pipe",
     in: transform(fn),
-    out: schema2
+    out: schema
   });
 }
 // node_modules/zod/v4/classic/compat.js
@@ -13992,8 +13927,8 @@ var RECOGNIZED_KEYS = /* @__PURE__ */ new Set([
   "nullable",
   "readOnly"
 ]);
-function detectVersion(schema2, defaultTarget) {
-  const $schema = schema2.$schema;
+function detectVersion(schema, defaultTarget) {
+  const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
     return "draft-2020-12";
   }
@@ -14023,27 +13958,27 @@ function resolveRef(ref, ctx) {
   }
   throw new Error(`Reference not found: ${ref}`);
 }
-function convertBaseSchema(schema2, ctx) {
-  if (schema2.not !== undefined) {
-    if (typeof schema2.not === "object" && Object.keys(schema2.not).length === 0) {
+function convertBaseSchema(schema, ctx) {
+  if (schema.not !== undefined) {
+    if (typeof schema.not === "object" && Object.keys(schema.not).length === 0) {
       return z.never();
     }
     throw new Error("not is not supported in Zod (except { not: {} } for never)");
   }
-  if (schema2.unevaluatedItems !== undefined) {
+  if (schema.unevaluatedItems !== undefined) {
     throw new Error("unevaluatedItems is not supported");
   }
-  if (schema2.unevaluatedProperties !== undefined) {
+  if (schema.unevaluatedProperties !== undefined) {
     throw new Error("unevaluatedProperties is not supported");
   }
-  if (schema2.if !== undefined || schema2.then !== undefined || schema2.else !== undefined) {
+  if (schema.if !== undefined || schema.then !== undefined || schema.else !== undefined) {
     throw new Error("Conditional schemas (if/then/else) are not supported");
   }
-  if (schema2.dependentSchemas !== undefined || schema2.dependentRequired !== undefined) {
+  if (schema.dependentSchemas !== undefined || schema.dependentRequired !== undefined) {
     throw new Error("dependentSchemas and dependentRequired are not supported");
   }
-  if (schema2.$ref) {
-    const refPath = schema2.$ref;
+  if (schema.$ref) {
+    const refPath = schema.$ref;
     if (ctx.refs.has(refPath)) {
       return ctx.refs.get(refPath);
     }
@@ -14062,9 +13997,9 @@ function convertBaseSchema(schema2, ctx) {
     ctx.processing.delete(refPath);
     return zodSchema2;
   }
-  if (schema2.enum !== undefined) {
-    const enumValues = schema2.enum;
-    if (ctx.version === "openapi-3.0" && schema2.nullable === true && enumValues.length === 1 && enumValues[0] === null) {
+  if (schema.enum !== undefined) {
+    const enumValues = schema.enum;
+    if (ctx.version === "openapi-3.0" && schema.nullable === true && enumValues.length === 1 && enumValues[0] === null) {
       return z.null();
     }
     if (enumValues.length === 0) {
@@ -14082,13 +14017,13 @@ function convertBaseSchema(schema2, ctx) {
     }
     return z.union([literalSchemas[0], literalSchemas[1], ...literalSchemas.slice(2)]);
   }
-  if (schema2.const !== undefined) {
-    return z.literal(schema2.const);
+  if (schema.const !== undefined) {
+    return z.literal(schema.const);
   }
-  const type = schema2.type;
+  const type = schema.type;
   if (Array.isArray(type)) {
     const typeSchemas = type.map((t) => {
-      const typeSchema = { ...schema2, type: t };
+      const typeSchema = { ...schema, type: t };
       return convertBaseSchema(typeSchema, ctx);
     });
     if (typeSchemas.length === 0) {
@@ -14106,8 +14041,8 @@ function convertBaseSchema(schema2, ctx) {
   switch (type) {
     case "string": {
       let stringSchema = z.string();
-      if (schema2.format) {
-        const format = schema2.format;
+      if (schema.format) {
+        const format = schema.format;
         if (format === "email") {
           stringSchema = stringSchema.check(z.email());
         } else if (format === "uri" || format === "uri-reference") {
@@ -14156,14 +14091,14 @@ function convertBaseSchema(schema2, ctx) {
           stringSchema = stringSchema.check(z.ksuid());
         }
       }
-      if (typeof schema2.minLength === "number") {
-        stringSchema = stringSchema.min(schema2.minLength);
+      if (typeof schema.minLength === "number") {
+        stringSchema = stringSchema.min(schema.minLength);
       }
-      if (typeof schema2.maxLength === "number") {
-        stringSchema = stringSchema.max(schema2.maxLength);
+      if (typeof schema.maxLength === "number") {
+        stringSchema = stringSchema.max(schema.maxLength);
       }
-      if (schema2.pattern) {
-        stringSchema = stringSchema.regex(new RegExp(schema2.pattern));
+      if (schema.pattern) {
+        stringSchema = stringSchema.regex(new RegExp(schema.pattern));
       }
       zodSchema = stringSchema;
       break;
@@ -14171,24 +14106,24 @@ function convertBaseSchema(schema2, ctx) {
     case "number":
     case "integer": {
       let numberSchema = type === "integer" ? z.number().int() : z.number();
-      if (typeof schema2.minimum === "number") {
-        numberSchema = numberSchema.min(schema2.minimum);
+      if (typeof schema.minimum === "number") {
+        numberSchema = numberSchema.min(schema.minimum);
       }
-      if (typeof schema2.maximum === "number") {
-        numberSchema = numberSchema.max(schema2.maximum);
+      if (typeof schema.maximum === "number") {
+        numberSchema = numberSchema.max(schema.maximum);
       }
-      if (typeof schema2.exclusiveMinimum === "number") {
-        numberSchema = numberSchema.gt(schema2.exclusiveMinimum);
-      } else if (schema2.exclusiveMinimum === true && typeof schema2.minimum === "number") {
-        numberSchema = numberSchema.gt(schema2.minimum);
+      if (typeof schema.exclusiveMinimum === "number") {
+        numberSchema = numberSchema.gt(schema.exclusiveMinimum);
+      } else if (schema.exclusiveMinimum === true && typeof schema.minimum === "number") {
+        numberSchema = numberSchema.gt(schema.minimum);
       }
-      if (typeof schema2.exclusiveMaximum === "number") {
-        numberSchema = numberSchema.lt(schema2.exclusiveMaximum);
-      } else if (schema2.exclusiveMaximum === true && typeof schema2.maximum === "number") {
-        numberSchema = numberSchema.lt(schema2.maximum);
+      if (typeof schema.exclusiveMaximum === "number") {
+        numberSchema = numberSchema.lt(schema.exclusiveMaximum);
+      } else if (schema.exclusiveMaximum === true && typeof schema.maximum === "number") {
+        numberSchema = numberSchema.lt(schema.maximum);
       }
-      if (typeof schema2.multipleOf === "number") {
-        numberSchema = numberSchema.multipleOf(schema2.multipleOf);
+      if (typeof schema.multipleOf === "number") {
+        numberSchema = numberSchema.multipleOf(schema.multipleOf);
       }
       zodSchema = numberSchema;
       break;
@@ -14203,15 +14138,15 @@ function convertBaseSchema(schema2, ctx) {
     }
     case "object": {
       const shape = {};
-      const properties = schema2.properties || {};
-      const requiredSet = new Set(schema2.required || []);
+      const properties = schema.properties || {};
+      const requiredSet = new Set(schema.required || []);
       for (const [key, propSchema] of Object.entries(properties)) {
         const propZodSchema = convertSchema(propSchema, ctx);
         shape[key] = requiredSet.has(key) ? propZodSchema : propZodSchema.optional();
       }
-      if (schema2.propertyNames) {
-        const keySchema = convertSchema(schema2.propertyNames, ctx);
-        const valueSchema = schema2.additionalProperties && typeof schema2.additionalProperties === "object" ? convertSchema(schema2.additionalProperties, ctx) : z.any();
+      if (schema.propertyNames) {
+        const keySchema = convertSchema(schema.propertyNames, ctx);
+        const valueSchema = schema.additionalProperties && typeof schema.additionalProperties === "object" ? convertSchema(schema.additionalProperties, ctx) : z.any();
         if (Object.keys(shape).length === 0) {
           zodSchema = z.record(keySchema, valueSchema);
           break;
@@ -14221,8 +14156,8 @@ function convertBaseSchema(schema2, ctx) {
         zodSchema = z.intersection(objectSchema2, recordSchema);
         break;
       }
-      if (schema2.patternProperties) {
-        const patternProps = schema2.patternProperties;
+      if (schema.patternProperties) {
+        const patternProps = schema.patternProperties;
         const patternKeys = Object.keys(patternProps);
         const looseRecords = [];
         for (const pattern of patternKeys) {
@@ -14249,18 +14184,18 @@ function convertBaseSchema(schema2, ctx) {
         break;
       }
       const objectSchema = z.object(shape);
-      if (schema2.additionalProperties === false) {
+      if (schema.additionalProperties === false) {
         zodSchema = objectSchema.strict();
-      } else if (typeof schema2.additionalProperties === "object") {
-        zodSchema = objectSchema.catchall(convertSchema(schema2.additionalProperties, ctx));
+      } else if (typeof schema.additionalProperties === "object") {
+        zodSchema = objectSchema.catchall(convertSchema(schema.additionalProperties, ctx));
       } else {
         zodSchema = objectSchema.passthrough();
       }
       break;
     }
     case "array": {
-      const prefixItems = schema2.prefixItems;
-      const items = schema2.items;
+      const prefixItems = schema.prefixItems;
+      const items = schema.items;
       if (prefixItems && Array.isArray(prefixItems)) {
         const tupleItems = prefixItems.map((item) => convertSchema(item, ctx));
         const rest = items && typeof items === "object" && !Array.isArray(items) ? convertSchema(items, ctx) : undefined;
@@ -14269,34 +14204,34 @@ function convertBaseSchema(schema2, ctx) {
         } else {
           zodSchema = z.tuple(tupleItems);
         }
-        if (typeof schema2.minItems === "number") {
-          zodSchema = zodSchema.check(z.minLength(schema2.minItems));
+        if (typeof schema.minItems === "number") {
+          zodSchema = zodSchema.check(z.minLength(schema.minItems));
         }
-        if (typeof schema2.maxItems === "number") {
-          zodSchema = zodSchema.check(z.maxLength(schema2.maxItems));
+        if (typeof schema.maxItems === "number") {
+          zodSchema = zodSchema.check(z.maxLength(schema.maxItems));
         }
       } else if (Array.isArray(items)) {
         const tupleItems = items.map((item) => convertSchema(item, ctx));
-        const rest = schema2.additionalItems && typeof schema2.additionalItems === "object" ? convertSchema(schema2.additionalItems, ctx) : undefined;
+        const rest = schema.additionalItems && typeof schema.additionalItems === "object" ? convertSchema(schema.additionalItems, ctx) : undefined;
         if (rest) {
           zodSchema = z.tuple(tupleItems).rest(rest);
         } else {
           zodSchema = z.tuple(tupleItems);
         }
-        if (typeof schema2.minItems === "number") {
-          zodSchema = zodSchema.check(z.minLength(schema2.minItems));
+        if (typeof schema.minItems === "number") {
+          zodSchema = zodSchema.check(z.minLength(schema.minItems));
         }
-        if (typeof schema2.maxItems === "number") {
-          zodSchema = zodSchema.check(z.maxLength(schema2.maxItems));
+        if (typeof schema.maxItems === "number") {
+          zodSchema = zodSchema.check(z.maxLength(schema.maxItems));
         }
       } else if (items !== undefined) {
         const element = convertSchema(items, ctx);
         let arraySchema = z.array(element);
-        if (typeof schema2.minItems === "number") {
-          arraySchema = arraySchema.min(schema2.minItems);
+        if (typeof schema.minItems === "number") {
+          arraySchema = arraySchema.min(schema.minItems);
         }
-        if (typeof schema2.maxItems === "number") {
-          arraySchema = arraySchema.max(schema2.maxItems);
+        if (typeof schema.maxItems === "number") {
+          arraySchema = arraySchema.max(schema.maxItems);
         }
         zodSchema = arraySchema;
       } else {
@@ -14309,76 +14244,76 @@ function convertBaseSchema(schema2, ctx) {
   }
   return zodSchema;
 }
-function convertSchema(schema2, ctx) {
-  if (typeof schema2 === "boolean") {
-    return schema2 ? z.any() : z.never();
+function convertSchema(schema, ctx) {
+  if (typeof schema === "boolean") {
+    return schema ? z.any() : z.never();
   }
-  let baseSchema = convertBaseSchema(schema2, ctx);
-  const hasExplicitType = schema2.type || schema2.enum !== undefined || schema2.const !== undefined;
-  if (schema2.anyOf && Array.isArray(schema2.anyOf)) {
-    const options = schema2.anyOf.map((s) => convertSchema(s, ctx));
+  let baseSchema = convertBaseSchema(schema, ctx);
+  const hasExplicitType = schema.type || schema.enum !== undefined || schema.const !== undefined;
+  if (schema.anyOf && Array.isArray(schema.anyOf)) {
+    const options = schema.anyOf.map((s) => convertSchema(s, ctx));
     const anyOfUnion = z.union(options);
     baseSchema = hasExplicitType ? z.intersection(baseSchema, anyOfUnion) : anyOfUnion;
   }
-  if (schema2.oneOf && Array.isArray(schema2.oneOf)) {
-    const options = schema2.oneOf.map((s) => convertSchema(s, ctx));
+  if (schema.oneOf && Array.isArray(schema.oneOf)) {
+    const options = schema.oneOf.map((s) => convertSchema(s, ctx));
     const oneOfUnion = z.xor(options);
     baseSchema = hasExplicitType ? z.intersection(baseSchema, oneOfUnion) : oneOfUnion;
   }
-  if (schema2.allOf && Array.isArray(schema2.allOf)) {
-    if (schema2.allOf.length === 0) {
+  if (schema.allOf && Array.isArray(schema.allOf)) {
+    if (schema.allOf.length === 0) {
       baseSchema = hasExplicitType ? baseSchema : z.any();
     } else {
-      let result = hasExplicitType ? baseSchema : convertSchema(schema2.allOf[0], ctx);
+      let result = hasExplicitType ? baseSchema : convertSchema(schema.allOf[0], ctx);
       const startIdx = hasExplicitType ? 0 : 1;
-      for (let i = startIdx;i < schema2.allOf.length; i++) {
-        result = z.intersection(result, convertSchema(schema2.allOf[i], ctx));
+      for (let i = startIdx;i < schema.allOf.length; i++) {
+        result = z.intersection(result, convertSchema(schema.allOf[i], ctx));
       }
       baseSchema = result;
     }
   }
-  if (schema2.nullable === true && ctx.version === "openapi-3.0") {
+  if (schema.nullable === true && ctx.version === "openapi-3.0") {
     baseSchema = z.nullable(baseSchema);
   }
-  if (schema2.readOnly === true) {
+  if (schema.readOnly === true) {
     baseSchema = z.readonly(baseSchema);
   }
-  if (schema2.default !== undefined) {
-    baseSchema = baseSchema.default(schema2.default);
+  if (schema.default !== undefined) {
+    baseSchema = baseSchema.default(schema.default);
   }
   const extraMeta = {};
   const coreMetadataKeys = ["$id", "id", "$comment", "$anchor", "$vocabulary", "$dynamicRef", "$dynamicAnchor"];
   for (const key of coreMetadataKeys) {
-    if (key in schema2) {
-      extraMeta[key] = schema2[key];
+    if (key in schema) {
+      extraMeta[key] = schema[key];
     }
   }
   const contentMetadataKeys = ["contentEncoding", "contentMediaType", "contentSchema"];
   for (const key of contentMetadataKeys) {
-    if (key in schema2) {
-      extraMeta[key] = schema2[key];
+    if (key in schema) {
+      extraMeta[key] = schema[key];
     }
   }
-  for (const key of Object.keys(schema2)) {
+  for (const key of Object.keys(schema)) {
     if (!RECOGNIZED_KEYS.has(key)) {
-      extraMeta[key] = schema2[key];
+      extraMeta[key] = schema[key];
     }
   }
   if (Object.keys(extraMeta).length > 0) {
     ctx.registry.add(baseSchema, extraMeta);
   }
-  if (schema2.description) {
-    baseSchema = baseSchema.describe(schema2.description);
+  if (schema.description) {
+    baseSchema = baseSchema.describe(schema.description);
   }
   return baseSchema;
 }
-function fromJSONSchema(schema2, params) {
-  if (typeof schema2 === "boolean") {
-    return schema2 ? z.any() : z.never();
+function fromJSONSchema(schema, params) {
+  if (typeof schema === "boolean") {
+    return schema ? z.any() : z.never();
   }
   let normalized;
   try {
-    normalized = JSON.parse(JSON.stringify(schema2));
+    normalized = JSON.parse(JSON.stringify(schema));
   } catch {
     throw new Error("fromJSONSchema input is not valid JSON (possibly cyclic); use $defs/$ref for recursive schemas");
   }
@@ -14422,201 +14357,18 @@ function date4(params) {
 // node_modules/zod/v4/classic/external.js
 config(en_default());
 // src/plugin-options.ts
-var schema2 = exports_external.object({
+var schema = exports_external.object({
   statePath: exports_external.string().min(1).optional(),
   maxContextBytes: exports_external.number().int().positive().optional(),
   autoContinue: exports_external.boolean().optional()
 });
 function parseOptions(input) {
-  const parsed = schema2.parse(input ?? {});
+  const parsed = schema.parse(input ?? {});
   return {
     statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true
   };
-}
-
-// src/runtime.ts
-function textFromParts(parts) {
-  const texts = parts.filter((part) => part.type === "text" && !part.synthetic && !part.ignored && typeof part.text === "string").map((part) => part.text?.trim()).filter((text) => Boolean(text));
-  return texts.length ? texts.join(`
-
-`) : undefined;
-}
-
-class GoalRuntimeHooks {
-  store;
-  client;
-  options;
-  constructor(store, client, options = {
-    maxContextBytes: 60000,
-    autoContinue: true
-  }) {
-    this.store = store;
-    this.client = client;
-    this.options = options;
-  }
-  async onEvent(input) {
-    const event = input.event;
-    const sessionID = event.properties?.sessionID;
-    if (!sessionID)
-      return;
-    if (event.type === "session.next.interrupt.requested") {
-      await this.setFlagsIfSessionExists(sessionID, {
-        autoContinuationSuppressed: true,
-        continuationInFlight: false
-      });
-      return;
-    }
-    if (event.type === "session.next.step.started") {
-      await this.setFlagsIfSessionExists(sessionID, { turnHadToolCalls: false });
-      return;
-    }
-    if (event.type === "session.next.tool.called") {
-      await this.setFlagsIfSessionExists(sessionID, { turnHadToolCalls: true });
-      return;
-    }
-    if (event.type === "question.asked" || event.type === "question.v2.asked") {
-      const state = await this.store.getSession(sessionID);
-      await this.setFlagsIfSessionExists(sessionID, {
-        pendingQuestionCount: state.flags.pendingQuestionCount + 1
-      });
-      return;
-    }
-    if (event.type === "question.replied" || event.type === "question.rejected" || event.type === "question.v2.replied" || event.type === "question.v2.rejected") {
-      const state = await this.store.getSession(sessionID);
-      await this.setFlagsIfSessionExists(sessionID, {
-        pendingQuestionCount: Math.max(0, state.flags.pendingQuestionCount - 1)
-      });
-      return;
-    }
-    if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
-      const state = await this.store.getSession(sessionID);
-      await this.setFlagsIfSessionExists(sessionID, {
-        pendingPermissionCount: state.flags.pendingPermissionCount + 1
-      });
-      return;
-    }
-    if (event.type === "permission.replied" || event.type === "permission.v2.replied") {
-      const state = await this.store.getSession(sessionID);
-      await this.setFlagsIfSessionExists(sessionID, {
-        pendingPermissionCount: Math.max(0, state.flags.pendingPermissionCount - 1)
-      });
-      return;
-    }
-    if (event.type === "session.next.compaction.ended") {
-      await this.markCompactionNoticePending(sessionID);
-      return;
-    }
-    if (event.type === "session.next.step.ended") {
-      await this.settleInFlightContinuation(sessionID);
-      return;
-    }
-    if (event.type === "session.idle") {
-      await this.settleInFlightContinuation(sessionID);
-      await this.maybeAutoContinue(sessionID);
-    }
-  }
-  async settleInFlightContinuation(sessionID) {
-    const state = await this.store.getSession(sessionID);
-    if (!state.flags.continuationInFlight)
-      return;
-    await this.setFlagsIfSessionExists(sessionID, {
-      continuationInFlight: false,
-      autoContinuationSuppressed: !state.flags.turnHadToolCalls
-    });
-  }
-  async maybeAutoContinue(sessionID) {
-    const state = await this.store.getSession(sessionID);
-    if (!this.options.autoContinue)
-      return;
-    if (!state.goal || state.goal.status !== "active")
-      return;
-    if (state.flags.autoContinuationSuppressed)
-      return;
-    if (state.flags.continuationInFlight)
-      return;
-    if (state.flags.pendingQuestionCount > 0 || state.flags.pendingPermissionCount > 0)
-      return;
-    const context = renderActiveGoalContext(state);
-    if (context && Buffer.byteLength(context, "utf8") > this.options.maxContextBytes) {
-      await this.store.setFlags(sessionID, { autoContinuationSuppressed: true });
-      return;
-    }
-    const text = renderContinuationPrompt(state);
-    if (!text)
-      return;
-    await this.setFlagsIfSessionExists(sessionID, {
-      continuationInFlight: true,
-      turnHadToolCalls: false
-    });
-    await this.client.session.promptAsync({
-      path: { id: sessionID },
-      body: { parts: [{ type: "text", text, synthetic: true }] }
-    });
-  }
-  async onChatMessage(input, output) {
-    const text = textFromParts(output.parts);
-    if (!text)
-      return;
-    const state = await this.store.getSession(input.sessionID);
-    if (!state.goal || state.goal.status !== "active")
-      return;
-    if (state.flags.ignoredInputTexts.includes(text)) {
-      state.flags.ignoredInputTexts = state.flags.ignoredInputTexts.filter((item) => item !== text);
-      await this.store.saveSession(state);
-      return;
-    }
-    await this.store.appendSupplement(input.sessionID, {
-      messageID: input.messageID,
-      source: "user",
-      text
-    });
-  }
-  async onSystemTransform(input, output) {
-    if (!input.sessionID)
-      return;
-    const state = await this.store.getSession(input.sessionID);
-    const rendered = renderActiveGoalContext(state, {
-      includeCompactionNotice: state.flags.compactionNoticePending
-    });
-    if (!rendered)
-      return;
-    output.system.push(rendered);
-    if (state.flags.compactionNoticePending) {
-      await this.store.setFlags(input.sessionID, state.flags.compactionNoticeSkipNextClear ? { compactionNoticeSkipNextClear: false } : { compactionNoticePending: false, compactionNoticeSkipNextClear: false });
-    }
-  }
-  async onCompacting(input, output) {
-    const state = await this.store.getSession(input.sessionID);
-    const rendered = renderCompactionContext(state);
-    if (rendered) {
-      output.context.push(rendered);
-      await this.markCompactionNoticePending(input.sessionID, { skipNextClear: true });
-    }
-  }
-  async onCompactionAutocontinue(input, output) {
-    output.enabled = false;
-    await this.markCompactionNoticePending(input.sessionID);
-  }
-  async markCompactionNoticePending(sessionID, options = {}) {
-    const state = await this.store.getSession(sessionID);
-    if (state.goal?.status === "active") {
-      await this.setFlagsIfSessionExists(sessionID, {
-        compactionNoticePending: true,
-        compactionNoticeSkipNextClear: options.skipNextClear ?? false
-      });
-    }
-  }
-  async setFlagsIfSessionExists(sessionID, patch) {
-    try {
-      await this.store.setFlags(sessionID, patch);
-    } catch (error51) {
-      if (!(error51 instanceof Error) || error51.message !== `No goal for session ${sessionID}`) {
-        throw error51;
-      }
-    }
-  }
 }
 
 // src/store.ts
@@ -14815,33 +14567,308 @@ class GoalStore {
   }
 }
 
-// src/index.ts
-var plugin = async (input, rawOptions) => {
+// src/tui.ts
+function currentSessionID(api2) {
+  const value = api2.route?.current?.params?.sessionID;
+  return typeof value === "string" ? value : undefined;
+}
+function goalStartPromptText(context, action) {
+  const instruction = action === "resume" ? "Resume working toward the active goal." : action === "replace" ? "Begin working toward the replacement active goal." : "Begin working toward the active goal.";
+  return `${context}
+
+${instruction}
+If the goal is now complete, call goal({ op: "complete" }).`;
+}
+function toast(api2, variant, message) {
+  api2.ui?.toast?.({ variant, title: "Goal", message });
+}
+function errorMessage(error51) {
+  return error51 instanceof Error ? error51.message : "Goal command failed";
+}
+function sessionAgent(session) {
+  if (typeof session?.agent === "string")
+    return session.agent;
+  if (typeof session?.agent?.name === "string")
+    return session.agent.name;
+  if (typeof session?.agent?.id === "string")
+    return session.agent.id;
+  return;
+}
+function sessionModel(session) {
+  const modelID = session?.model?.id;
+  const providerID = session?.model?.providerID;
+  if (typeof modelID !== "string" || typeof providerID !== "string")
+    return;
+  return { modelID, providerID };
+}
+function requireSessionInfo(api2) {
+  const sessionID = currentSessionID(api2);
+  if (!sessionID) {
+    toast(api2, "error", "No active session");
+    return;
+  }
+  const status = api2.state?.session?.status?.(sessionID);
+  if (status?.type === "busy" || status?.type === "retry") {
+    toast(api2, "info", "Session is busy; try again when idle");
+    return;
+  }
+  const session = api2.state?.session?.get?.(sessionID);
+  if (!session) {
+    toast(api2, "error", "No active session");
+    return;
+  }
+  const model = sessionModel(session);
+  if (!model) {
+    toast(api2, "error", "No session model");
+    return;
+  }
+  const variant = session?.model?.variant;
+  return {
+    sessionID,
+    model,
+    agent: sessionAgent(session),
+    ...variant !== undefined ? { variant } : {}
+  };
+}
+function hasPromptAsync(api2) {
+  if (typeof api2.client?.session?.promptAsync !== "function") {
+    toast(api2, "error", "Session prompt API is unavailable");
+    return false;
+  }
+  return true;
+}
+async function promptWithActiveGoal(api2, store, info, state, action) {
+  const context = renderActiveGoalContext(state);
+  if (!context) {
+    toast(api2, "error", "No active goal");
+    return;
+  }
+  const text = goalStartPromptText(context, action);
+  await store.setFlags(info.sessionID, {
+    ignoredInputTexts: [...state.flags.ignoredInputTexts, text]
+  });
+  const input = {
+    sessionID: info.sessionID,
+    model: info.model,
+    parts: [{ type: "text", text }]
+  };
+  if (info.agent)
+    input.agent = info.agent;
+  if (info.variant !== undefined)
+    input.variant = info.variant;
+  await api2.client?.session?.promptAsync?.(input);
+}
+async function setGoal(api2, store, objective) {
+  const trimmed = objective.trim();
+  if (!trimmed) {
+    toast(api2, "error", "Goal objective cannot be blank");
+    return;
+  }
+  const info = requireSessionInfo(api2);
+  if (!info || !hasPromptAsync(api2))
+    return;
+  try {
+    const state = await store.createGoal(info.sessionID, trimmed);
+    toast(api2, "success", "Goal set");
+    await promptWithActiveGoal(api2, store, info, state, "set");
+  } catch (error51) {
+    toast(api2, "error", errorMessage(error51));
+  }
+}
+async function replaceGoal(api2, store, objective) {
+  const trimmed = objective.trim();
+  if (!trimmed) {
+    toast(api2, "error", "Goal objective cannot be blank");
+    return;
+  }
+  const info = requireSessionInfo(api2);
+  if (!info || !hasPromptAsync(api2))
+    return;
+  try {
+    const state = await store.replaceGoal(info.sessionID, trimmed);
+    toast(api2, "success", "Goal replaced");
+    await promptWithActiveGoal(api2, store, info, state, "replace");
+  } catch (error51) {
+    toast(api2, "error", errorMessage(error51));
+  }
+}
+async function showGoal(api2, store) {
+  const sessionID = currentSessionID(api2);
+  if (!sessionID) {
+    toast(api2, "error", "No active session");
+    return;
+  }
+  const context = renderActiveGoalContext(await store.getSession(sessionID));
+  if (!context) {
+    toast(api2, "info", "No active goal");
+    return;
+  }
+  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogAlert?.({
+    title: "Active goal",
+    message: context,
+    onConfirm: () => api2.ui?.dialog?.clear?.()
+  }) ?? { title: "Active goal", message: context });
+}
+async function pauseGoal(api2, store) {
+  const info = requireSessionInfo(api2);
+  if (!info)
+    return;
+  const state = await store.getSession(info.sessionID);
+  if (state.goal?.status !== "active") {
+    toast(api2, "info", "No active goal");
+    return;
+  }
+  state.goal = { ...state.goal, status: "paused", updatedAt: Date.now() };
+  await store.saveSession(state);
+  toast(api2, "success", "Goal paused");
+}
+async function dropGoal(api2, store) {
+  const info = requireSessionInfo(api2);
+  if (!info)
+    return;
+  const state = await store.getSession(info.sessionID);
+  if (state.goal?.status !== "active" && state.goal?.status !== "paused") {
+    toast(api2, "info", "No active goal");
+    return;
+  }
+  state.goal = {
+    ...state.goal,
+    status: "dropped",
+    droppedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.flags = {
+    ...state.flags,
+    continuationInFlight: false,
+    autoContinuationSuppressed: true
+  };
+  await store.saveSession(state);
+  toast(api2, "success", "Goal dropped");
+}
+async function resumeGoal(api2, store) {
+  const info = requireSessionInfo(api2);
+  if (!info)
+    return;
+  const state = await store.getSession(info.sessionID);
+  if (state.goal?.status !== "paused" && state.goal?.status !== "active") {
+    toast(api2, "info", "No active goal");
+    return;
+  }
+  if (!hasPromptAsync(api2))
+    return;
+  state.goal = { ...state.goal, status: "active", updatedAt: Date.now() };
+  state.flags = { ...state.flags, autoContinuationSuppressed: false };
+  const saved = await store.saveSession(state);
+  toast(api2, "success", "Goal resumed");
+  await promptWithActiveGoal(api2, store, info, saved, "resume");
+}
+function showGoalPrompt(api2, store, action) {
+  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogPrompt?.({
+    title: action === "set" ? "Set goal" : "Replace goal",
+    placeholder: "Describe the goal",
+    onConfirm: async (value) => {
+      api2.ui?.dialog?.clear?.();
+      if (action === "set")
+        await setGoal(api2, store, value);
+      else
+        await replaceGoal(api2, store, value);
+    },
+    onCancel: () => api2.ui?.dialog?.clear?.()
+  }) ?? { title: action === "set" ? "Set goal" : "Replace goal" });
+}
+async function runAction(api2, store, action) {
+  if (action === "set" || action === "replace") {
+    showGoalPrompt(api2, store, action);
+    return;
+  }
+  if (action === "show")
+    return showGoal(api2, store);
+  if (action === "pause")
+    return pauseGoal(api2, store);
+  if (action === "resume")
+    return resumeGoal(api2, store);
+  return dropGoal(api2, store);
+}
+function menuOptions(api2, store) {
+  const option = (title, value, description) => ({
+    title,
+    value,
+    description,
+    onSelect: () => runAction(api2, store, value)
+  });
+  return [
+    option("Show active goal", "show", "Display the current active goal context"),
+    option("Set goal", "set", "Start a goal if none is active"),
+    option("Replace goal", "replace", "Replace the current goal"),
+    option("Pause goal", "pause", "Pause the active goal"),
+    option("Resume goal", "resume", "Resume a paused goal"),
+    option("Drop goal", "drop", "Drop the active goal")
+  ];
+}
+function showGoalMenu(api2, store) {
+  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogSelect?.({
+    title: "Goal",
+    placeholder: "Choose a goal action",
+    options: menuOptions(api2, store)
+  }) ?? { title: "Goal", options: menuOptions(api2, store) });
+}
+function commandFields() {
+  return {
+    title: "Goal",
+    value: "goal",
+    description: "Manage the active goal",
+    slash: { name: "goal" }
+  };
+}
+function registerGoalTuiCommand(api2, rawOptions) {
   const options = parseOptions(rawOptions);
   const store = new GoalStore(options.statePath);
-  const runtime = new GoalRuntimeHooks(store, input.client, options);
-  return {
-    tool: {
-      goal: createGoalTool(store)
-    },
-    "chat.message": async (input2, output) => {
-      await runtime.onChatMessage(input2, output);
-    },
-    "experimental.chat.system.transform": async (input2, output) => {
-      await runtime.onSystemTransform(input2, output);
-    },
-    "experimental.session.compacting": async (input2, output) => {
-      await runtime.onCompacting(input2, output);
-    },
-    "experimental.compaction.autocontinue": async (input2, output) => {
-      await runtime.onCompactionAutocontinue(input2, output);
-    },
-    event: async (input2) => {
-      await runtime.onEvent(input2);
-    }
+  let unregisterCommand;
+  if (typeof api2.keymap?.registerLayer === "function") {
+    unregisterCommand = api2.keymap.registerLayer({
+      priority: 900,
+      commands: [
+        {
+          namespace: "palette",
+          name: "goal.menu",
+          desc: "Manage the active goal",
+          slashName: "goal",
+          ...commandFields(),
+          async run() {
+            showGoalMenu(api2, store);
+            return true;
+          }
+        }
+      ]
+    });
+  } else if (typeof api2.command?.register === "function") {
+    unregisterCommand = api2.command.register(() => [
+      {
+        ...commandFields(),
+        async onSelect() {
+          showGoalMenu(api2, store);
+        }
+      }
+    ]);
+  }
+  const dispose = () => {
+    unregisterCommand?.();
+    unregisterCommand = undefined;
   };
+  api2.lifecycle?.onDispose?.(dispose);
+  return dispose;
+}
+async function tui(api2, rawOptions) {
+  registerGoalTuiCommand(api2, rawOptions);
+}
+var tui_default = {
+  id: "opencode-goal-mode:tui",
+  tui
 };
-var src_default = plugin;
 export {
-  src_default as default
+  tui,
+  registerGoalTuiCommand,
+  goalStartPromptText,
+  tui_default as default,
+  currentSessionID
 };
