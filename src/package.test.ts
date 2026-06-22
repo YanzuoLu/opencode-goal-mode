@@ -28,10 +28,10 @@ test("package metadata uses the non-conflicting GitHub release name", async () =
   expect(pkg.repository?.url).toBe("git+https://github.com/YanzuoLu/opencode-goal-mode.git");
 });
 
-test("package metadata declares release version 0.1.4", async () => {
+test("package metadata declares release version 0.1.5", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
-  expect(pkg.version).toBe("0.1.4");
+  expect(pkg.version).toBe("0.1.5");
 });
 
 test("package metadata points to emitted declaration file", async () => {
@@ -62,13 +62,15 @@ test("README documents pinned server and TUI plugin install entries", async () =
   expect(readme).toContain("opencode.json");
   expect(readme).toContain("tui.json");
   expect(readme).toContain("https://opencode.ai/tui.json");
-  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4");
+  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.5");
+  expect(readme).not.toContain("#v0.1.4");
   expect(readme).not.toContain("#v0.1.3");
   expect(readme).not.toContain("#v0.1.2");
-  expect(readme).not.toContain("/goal <objective>");
-  expect(readme).toContain("/goal` opens the TUI goal menu/dialog. It does not take an inline objective argument.");
-  expect(readme).toContain("Set, replace, and resume submit model-visible chat context for the active goal.");
-  expect(readme).toContain("Show, pause, and drop are TUI-only actions and do not submit prompts to the model.");
+  expect(readme).toContain("/goal <objective>");
+  expect(readme).toContain("/goal show");
+  expect(readme).toContain("/goal pause");
+  expect(readme).toContain("/goal drop");
+  expect(readme).toContain("This message is not sent to the model.");
 
   const tuiBlock = readme.match(/Pin the TUI plugin in `tui\.json`[\s\S]*?```json\n([\s\S]*?)\n```/);
   expect(tuiBlock).not.toBeNull();

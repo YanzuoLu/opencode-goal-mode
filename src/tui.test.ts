@@ -41,6 +41,7 @@ function createFakeApi(options: {
   status?: unknown;
   keymap?: boolean;
   legacyCommand?: boolean;
+  dialogComponent?: boolean;
 } = {}) {
   const promptCalls: any[] = [];
   const toasts: any[] = [];
@@ -92,7 +93,20 @@ function createFakeApi(options: {
     get unregisterCount() {
       return unregisterCount;
     },
+    solidView: {
+      createElement: (type: string) => ({ type, props: {}, children: [] as any[] }),
+      setProp: (element: any, key: string, value: unknown) => {
+        element.props[key] = value;
+      },
+      insert: (element: any, child: unknown) => {
+        element.children.push(child);
+      },
+    },
   };
+
+  if (options.dialogComponent) {
+    api.ui.Dialog = (props: any) => ({ type: "dialog", props });
+  }
 
   if (options.keymap !== false) {
     api.keymap = {
@@ -233,10 +247,24 @@ describe("goal TUI command", () => {
 
     const dialog = await selectGoalAction(api, "show");
 
-    expect(dialog.type).toBe("alert");
+    expect(dialog.type).toBe("goal-detail");
     expect(dialog.props.title).toBe("Active goal");
-    expect(dialog.props.message).toContain("<active_goal_context>");
-    expect(dialog.props.message).toContain("Ship the TUI command");
+    expect(dialog.props.context).toContain("<active_goal_context>");
+    expect(dialog.props.context).toContain("Ship the TUI command");
+    expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("show uses the real TUI Dialog component path when available", async () => {
+    const { api, store } = await setup({ dialogComponent: true });
+    await store.createGoal(SESSION_ID, "Render a real detail dialog");
+
+    const dialog = await selectGoalAction(api, "show");
+
+    expect(dialog.type).toBe("dialog");
+    expect(dialog.props.size).toBe("xlarge");
+    expect(dialog.props.children.type).toBe("box");
+    expect(dialog.props.children.children[0].children).toContain("Active goal");
+    expect(dialog.props.children.children[1].children[0]).toContain("Render a real detail dialog");
     expect(api.promptCalls).toHaveLength(0);
   });
 

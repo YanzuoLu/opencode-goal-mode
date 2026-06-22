@@ -29,6 +29,13 @@ var ACTIVE_GOAL_RULES = [
 var COMPACTION_NOTICE = "The previous conversation context may have been compacted. The active_goal_context block is the authoritative source of the goal objective and supplemental instructions.";
 
 // src/context.ts
+function goalStartPromptText(context, action) {
+  const instruction = action === "resume" ? "Resume working toward the active goal." : action === "replace" ? "Begin working toward the replacement active goal." : "Begin working toward the active goal.";
+  return `${context}
+
+${instruction}
+If the goal is now complete, call goal({ op: "complete" }).`;
+}
 function renderActiveGoalContext(state, options = {}) {
   const goal = state.goal;
   if (!goal || goal.status !== "active")
@@ -14572,18 +14579,48 @@ function currentSessionID(api2) {
   const value = api2.route?.current?.params?.sessionID;
   return typeof value === "string" ? value : undefined;
 }
-function goalStartPromptText(context, action) {
-  const instruction = action === "resume" ? "Resume working toward the active goal." : action === "replace" ? "Begin working toward the replacement active goal." : "Begin working toward the active goal.";
-  return `${context}
-
-${instruction}
-If the goal is now complete, call goal({ op: "complete" }).`;
-}
 function toast(api2, variant, message) {
   api2.ui?.toast?.({ variant, title: "Goal", message });
 }
 function errorMessage(error51) {
   return error51 instanceof Error ? error51.message : "Goal command failed";
+}
+async function importModule(specifier) {
+  return import(specifier);
+}
+var defaultSolidView;
+async function loadSolidView() {
+  if (defaultSolidView)
+    return defaultSolidView;
+  let solid;
+  if (typeof Bun !== "undefined") {
+    await importModule("@opentui/solid/runtime-plugin-support");
+    solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
+  } else {
+    solid = await importModule("@opentui/solid");
+  }
+  const { createElement, insert, setProp } = solid;
+  defaultSolidView = { createElement, insert, setProp };
+  return defaultSolidView;
+}
+function elementNode(type, props, children, view) {
+  const element = view.createElement(type);
+  for (const [key, value] of Object.entries(props)) {
+    if (value !== undefined)
+      view.setProp(element, key, value);
+  }
+  for (const child of children) {
+    if (child !== null && child !== undefined && child !== false)
+      view.insert(element, child);
+  }
+  return element;
+}
+function textNode(value, props, view) {
+  return elementNode("text", props, [value], view);
+}
+function themeFor(api2) {
+  const theme = api2.theme && "current" in api2.theme ? api2.theme.current : api2.theme;
+  return theme ?? {};
 }
 function sessionAgent(session) {
   if (typeof session?.agent === "string")
@@ -14692,6 +14729,28 @@ async function replaceGoal(api2, store, objective) {
     toast(api2, "error", errorMessage(error51));
   }
 }
+function goalDetailView(api2, context, view) {
+  if (api2.ui?.Dialog && view) {
+    const theme = themeFor(api2);
+    const content = elementNode("box", { flexDirection: "column", paddingX: 1, paddingY: 1 }, [
+      textNode("Active goal", { fg: theme.text, bold: true }, view),
+      textNode(context, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)
+    ], view);
+    return api2.ui.Dialog({
+      size: "xlarge",
+      onClose: () => api2.ui?.dialog?.clear?.(),
+      children: content
+    });
+  }
+  return {
+    type: "goal-detail",
+    props: {
+      title: "Active goal",
+      context,
+      onClose: () => api2.ui?.dialog?.clear?.()
+    }
+  };
+}
 async function showGoal(api2, store) {
   const sessionID = currentSessionID(api2);
   if (!sessionID) {
@@ -14703,11 +14762,8 @@ async function showGoal(api2, store) {
     toast(api2, "info", "No active goal");
     return;
   }
-  api2.ui?.dialog?.replace?.(() => api2.ui?.DialogAlert?.({
-    title: "Active goal",
-    message: context,
-    onConfirm: () => api2.ui?.dialog?.clear?.()
-  }) ?? { title: "Active goal", message: context });
+  const view = api2.solidView ?? (api2.ui?.Dialog ? await loadSolidView() : undefined);
+  api2.ui?.dialog?.replace?.(() => goalDetailView(api2, context, view));
 }
 async function pauseGoal(api2, store) {
   const info = requireSessionInfo(api2);

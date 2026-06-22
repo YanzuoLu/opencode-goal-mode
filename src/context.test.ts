@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  goalStartPromptText,
   renderActiveGoalContext,
   renderCompactionContext,
   renderContinuationPrompt,
@@ -59,6 +60,16 @@ describe("goal context rendering", () => {
 
     expect(rendered).toContain("Preserve this active goal context");
     expect(rendered).toContain("Build the plugin");
+  });
+
+  test("builds goal start prompt text for set, replace, and resume", () => {
+    const context = "<active_goal_context>Ship it</active_goal_context>";
+
+    expect(goalStartPromptText(context, "set")).toContain("Begin working toward the active goal.");
+    expect(goalStartPromptText(context, "replace")).toContain("Begin working toward the replacement active goal.");
+    expect(goalStartPromptText(context, "resume")).toContain("Resume working toward the active goal.");
+    expect(goalStartPromptText(context, "set")).toContain(context);
+    expect(goalStartPromptText(context, "set")).toContain('goal({ op: "complete" })');
   });
 
   test("returns undefined when the goal is missing or inactive", () => {

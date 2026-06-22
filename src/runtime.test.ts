@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { handleGoalCommand } from "./commands";
 import plugin from "./index";
 import { GoalRuntimeHooks } from "./runtime";
 import { GoalStore } from "./store";
@@ -38,6 +39,22 @@ describe("GoalRuntimeHooks", () => {
       { sessionID: "s1", messageID: "m2" },
       { message: { id: "m2" }, parts: [{ type: "text", text: "Goal mode initialized." }] } as any,
     );
+
+    const next = await store.getSession("s1");
+    expect(next.goal?.supplements).toHaveLength(0);
+    expect(next.flags.ignoredInputTexts).toEqual([]);
+  });
+
+  test("does not self-capture server /goal kickoff text as supplement", async () => {
+    const { store, runtime } = await setup();
+    const output: any = { parts: [] };
+
+    await handleGoalCommand(
+      { command: "goal", sessionID: "s1", arguments: "Ship server kickoff" },
+      output,
+      store,
+    );
+    await runtime.onChatMessage({ sessionID: "s1", messageID: "m-server-goal" }, output);
 
     const next = await store.getSession("s1");
     expect(next.goal?.supplements).toHaveLength(0);
@@ -393,13 +410,37 @@ describe("plugin runtime wiring", () => {
     const hooks = await plugin({ client: { session: { promptAsync: async () => undefined } } } as any);
 
     expect(hooks.tool).toHaveProperty("goal");
-    expect(hooks.config).toBeUndefined();
-    expect(hooks["command.execute.before"]).toBeUndefined();
+    expect(hooks.config).toBeFunction();
+    expect(hooks["command.execute.before"]).toBeFunction();
     expect(hooks["chat.message"]).toBeFunction();
     expect(hooks["experimental.chat.system.transform"]).toBeFunction();
     expect(hooks["experimental.session.compacting"]).toBeFunction();
     expect(hooks["experimental.compaction.autocontinue"]).toBeFunction();
     expect(hooks.event).toBeFunction();
+  });
+
+  test("wires server goal command hooks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "opencode-goal-plugin-"));
+    const statePath = join(dir, "custom-state.json");
+    const hooks = await plugin(
+      { client: { session: { promptAsync: async () => undefined } } } as any,
+      { statePath, maxContextBytes: 60000, autoContinue: true },
+    );
+    const config: any = {};
+    await hooks.config?.(config);
+    const output: any = { parts: [] };
+
+    await hooks["command.execute.before"]?.(
+      { command: "goal", sessionID: "s1", arguments: "Ship wired command" } as any,
+      output,
+    );
+
+    expect(config.command.goal).toMatchObject({ description: "Manage the active goal" });
+    expect(output.parts[0].text).toContain("Ship wired command");
+    expect((await new GoalStore(statePath).getSession("s1")).goal).toMatchObject({
+      objective: "Ship wired command",
+      status: "active",
+    });
   });
 
   test("uses statePath option for persisted tool state", async () => {

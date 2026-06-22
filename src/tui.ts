@@ -1,10 +1,17 @@
-import { renderActiveGoalContext } from "./context";
+import { goalStartPromptText, renderActiveGoalContext } from "./context";
+import type { GoalStartAction } from "./context";
 import { parseOptions } from "./plugin-options";
 import { GoalStore } from "./store";
 import type { GoalSessionState } from "./types";
+export { goalStartPromptText } from "./context";
 
-type GoalStartAction = "set" | "replace" | "resume";
 type GoalMenuAction = GoalStartAction | "show" | "pause" | "drop";
+
+type SolidView = {
+  createElement: (type: string) => any;
+  insert: (element: any, child: unknown) => void;
+  setProp: (element: any, key: string, value: unknown) => void;
+};
 
 type GoalTuiApi = {
   route?: { current?: { params?: Record<string, unknown> } };
@@ -21,10 +28,13 @@ type GoalTuiApi = {
       replace?: (render: () => unknown, onClose?: () => void) => void;
       clear?: () => void;
     };
+    Dialog?: (props: any) => unknown;
     DialogSelect?: (props: any) => unknown;
     DialogPrompt?: (props: any) => unknown;
     DialogAlert?: (props: any) => unknown;
   };
+  solidView?: SolidView;
+  theme?: { current?: Record<string, unknown> } | Record<string, unknown>;
   keymap?: { registerLayer?: (layer: any) => () => void };
   command?: { register?: (callback: () => any[]) => () => void };
   lifecycle?: { onDispose?: (dispose: () => void) => unknown };
@@ -42,15 +52,6 @@ export function currentSessionID(api: { route?: { current?: { params?: Record<st
   return typeof value === "string" ? value : undefined;
 }
 
-export function goalStartPromptText(context: string, action: GoalStartAction): string {
-  const instruction = action === "resume"
-    ? "Resume working toward the active goal."
-    : action === "replace"
-      ? "Begin working toward the replacement active goal."
-      : "Begin working toward the active goal.";
-  return `${context}\n\n${instruction}\nIf the goal is now complete, call goal({ op: "complete" }).`;
-}
-
 function toast(
   api: GoalTuiApi,
   variant: "info" | "success" | "warning" | "error",
@@ -61,6 +62,48 @@ function toast(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Goal command failed";
+}
+
+async function importModule(specifier: string): Promise<any> {
+  return import(specifier);
+}
+
+let defaultSolidView: SolidView | undefined;
+
+async function loadSolidView(): Promise<SolidView> {
+  if (defaultSolidView) return defaultSolidView;
+  let solid: any;
+  if (typeof Bun !== "undefined") {
+    await importModule("@opentui/solid/runtime-plugin-support");
+    solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
+  } else {
+    solid = await importModule("@opentui/solid");
+  }
+  const { createElement, insert, setProp } = solid;
+  defaultSolidView = { createElement, insert, setProp };
+  return defaultSolidView;
+}
+
+function elementNode(type: string, props: Record<string, unknown>, children: unknown[], view: SolidView): unknown {
+  const element = view.createElement(type);
+  for (const [key, value] of Object.entries(props)) {
+    if (value !== undefined) view.setProp(element, key, value);
+  }
+  for (const child of children) {
+    if (child !== null && child !== undefined && child !== false) view.insert(element, child);
+  }
+  return element;
+}
+
+function textNode(value: string, props: Record<string, unknown>, view: SolidView): unknown {
+  return elementNode("text", props, [value], view);
+}
+
+function themeFor(api: GoalTuiApi): Record<string, unknown> {
+  const theme = (api.theme && "current" in api.theme ? api.theme.current : api.theme) as
+    | Record<string, unknown>
+    | undefined;
+  return theme ?? {};
 }
 
 function sessionAgent(session: any): string | undefined {
@@ -186,6 +229,35 @@ async function replaceGoal(api: GoalTuiApi, store: GoalStore, objective: string)
   }
 }
 
+function goalDetailView(api: GoalTuiApi, context: string, view?: SolidView): unknown {
+  if (api.ui?.Dialog && view) {
+    const theme = themeFor(api);
+    const content = elementNode(
+      "box",
+      { flexDirection: "column", paddingX: 1, paddingY: 1 },
+      [
+        textNode("Active goal", { fg: theme.text, bold: true }, view),
+        textNode(context, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view),
+      ],
+      view,
+    );
+    return api.ui.Dialog({
+      size: "xlarge",
+      onClose: () => api.ui?.dialog?.clear?.(),
+      children: content,
+    });
+  }
+
+  return {
+    type: "goal-detail",
+    props: {
+      title: "Active goal",
+      context,
+      onClose: () => api.ui?.dialog?.clear?.(),
+    },
+  };
+}
+
 async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
   const sessionID = currentSessionID(api);
   if (!sessionID) {
@@ -199,13 +271,8 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
     return;
   }
 
-  api.ui?.dialog?.replace?.(() =>
-    api.ui?.DialogAlert?.({
-      title: "Active goal",
-      message: context,
-      onConfirm: () => api.ui?.dialog?.clear?.(),
-    }) ?? { title: "Active goal", message: context }
-  );
+  const view = api.solidView ?? (api.ui?.Dialog ? await loadSolidView() : undefined);
+  api.ui?.dialog?.replace?.(() => goalDetailView(api, context, view));
 }
 
 async function pauseGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {

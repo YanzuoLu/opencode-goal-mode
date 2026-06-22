@@ -4,9 +4,11 @@ Persistent goal mode for opencode.
 
 ## MVP Behavior
 
-- `/goal` opens the TUI goal menu/dialog. It does not take an inline objective argument.
-- Set, replace, and resume submit model-visible chat context for the active goal.
-- Show, pause, and drop are TUI-only actions and do not submit prompts to the model.
+- `/goal` opens the TUI goal menu/dialog.
+- `/goal <objective>` and `/goal set <objective>` create a goal inline and submit model-visible goal context.
+- `/goal replace <objective>` replaces a goal inline and submits model-visible goal context.
+- `/goal resume` resumes active/paused goals inline and submits model-visible goal context.
+- `/goal show`, `/goal pause`, and `/goal drop` write UI-only transcript status with `This message is not sent to the model.` and do not request a model reply.
 - Ordinary user messages while a goal is active are persisted as supplemental instructions.
 - Esc interrupt does not pause or drop the goal.
 - Auto continuation runs only after opencode reports the session idle.
@@ -32,7 +34,7 @@ Pin the server plugin to a release tag in `opencode.json` so later updates do no
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.5"
   ]
 }
 ```
@@ -43,12 +45,12 @@ Pin the TUI plugin in `tui.json` with the same release tag:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.5"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.4`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.5`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -57,7 +59,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.4",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.5",
       { "autoContinue": true }
     ]
   ]

@@ -1,6 +1,17 @@
 import type { GoalSessionState } from "./types";
 import { ACTIVE_GOAL_RULES, COMPACTION_NOTICE, escapeXml } from "./prompts";
 
+export type GoalStartAction = "set" | "replace" | "resume";
+
+export function goalStartPromptText(context: string, action: GoalStartAction): string {
+  const instruction = action === "resume"
+    ? "Resume working toward the active goal."
+    : action === "replace"
+      ? "Begin working toward the replacement active goal."
+      : "Begin working toward the active goal.";
+  return `${context}\n\n${instruction}\nIf the goal is now complete, call goal({ op: "complete" }).`;
+}
+
 export function renderActiveGoalContext(
   state: GoalSessionState,
   options: { includeCompactionNotice?: boolean } = {},

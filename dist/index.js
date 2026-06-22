@@ -13,9 +13,6 @@ var __export = (target, all) => {
     });
 };
 
-// src/goal-tool.ts
-import { tool } from "@opencode-ai/plugin/tool";
-
 // src/prompts.ts
 function escapeXml(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
@@ -32,6 +29,13 @@ var ACTIVE_GOAL_RULES = [
 var COMPACTION_NOTICE = "The previous conversation context may have been compacted. The active_goal_context block is the authoritative source of the goal objective and supplemental instructions.";
 
 // src/context.ts
+function goalStartPromptText(context, action) {
+  const instruction = action === "resume" ? "Resume working toward the active goal." : action === "replace" ? "Begin working toward the replacement active goal." : "Begin working toward the active goal.";
+  return `${context}
+
+${instruction}
+If the goal is now complete, call goal({ op: "complete" }).`;
+}
 function renderActiveGoalContext(state, options = {}) {
   const goal = state.goal;
   if (!goal || goal.status !== "active")
@@ -79,7 +83,149 @@ function renderCompactionContext(state) {
 ${rendered}`;
 }
 
+// src/commands.ts
+var subcommands = new Set([
+  "set",
+  "replace",
+  "show",
+  "pause",
+  "resume",
+  "drop"
+]);
+function registerGoalCommand(config) {
+  config.command = Object.assign({}, config.command, {
+    goal: {
+      template: "Manage persistent goal mode",
+      description: "Manage the active goal"
+    }
+  });
+}
+function parseGoalArgs(args) {
+  const trimmed = args.trim();
+  if (!trimmed)
+    return { subcommand: "menu", rest: "" };
+  const [first = "", ...restParts] = trimmed.split(/\s+/);
+  const lower = first.toLowerCase();
+  if (subcommands.has(lower)) {
+    return { subcommand: lower, rest: restParts.join(" ").trim() };
+  }
+  return { subcommand: "set", rest: trimmed };
+}
+function pushVisibleGoalPrompt(output, text) {
+  output.parts.push({ type: "text", text });
+}
+function setUiOnly(output, text) {
+  output.parts.push({ type: "text", text, ignored: true });
+  output.noReply = true;
+}
+function uiStatus(action) {
+  return `▣ Goal Mode | UI-only status
+This message is not sent to the model.
+
+Action: ${action}`;
+}
+function uiSnapshot(context) {
+  return `▣ Goal Mode | UI-only goal snapshot
+This message is not sent to the model.
+
+${context}`;
+}
+async function pushGoalStartPrompt(sessionID, output, store, action) {
+  const state = await store.getSession(sessionID);
+  const context = renderActiveGoalContext(state);
+  if (!context) {
+    setUiOnly(output, uiStatus("no active goal"));
+    return;
+  }
+  const text = goalStartPromptText(context, action);
+  await store.setFlags(sessionID, {
+    ignoredInputTexts: [...state.flags.ignoredInputTexts, text]
+  });
+  pushVisibleGoalPrompt(output, text);
+}
+async function handleGoalCommand(input, output, store) {
+  if (input.command !== "goal")
+    return;
+  const parsed = parseGoalArgs(input.arguments);
+  if (parsed.subcommand === "menu")
+    return;
+  try {
+    if (parsed.subcommand === "set") {
+      if (!parsed.rest) {
+        setUiOnly(output, uiStatus("Goal objective cannot be blank"));
+        return;
+      }
+      await store.createGoal(input.sessionID, parsed.rest);
+      await pushGoalStartPrompt(input.sessionID, output, store, "set");
+      return;
+    }
+    if (parsed.subcommand === "replace") {
+      if (!parsed.rest) {
+        setUiOnly(output, uiStatus("Goal objective cannot be blank"));
+        return;
+      }
+      await store.replaceGoal(input.sessionID, parsed.rest);
+      await pushGoalStartPrompt(input.sessionID, output, store, "replace");
+      return;
+    }
+    if (parsed.subcommand === "resume") {
+      const state2 = await store.getSession(input.sessionID);
+      if (!state2.goal || state2.goal.status !== "active" && state2.goal.status !== "paused") {
+        setUiOnly(output, uiStatus("no active goal"));
+        return;
+      }
+      if (state2.goal.status === "paused") {
+        await store.updateGoal(input.sessionID, (goal) => {
+          goal.status = "active";
+          goal.updatedAt = Date.now();
+        });
+      }
+      await store.setFlags(input.sessionID, { autoContinuationSuppressed: false });
+      await pushGoalStartPrompt(input.sessionID, output, store, "resume");
+      return;
+    }
+    if (parsed.subcommand === "show") {
+      const state2 = await store.getSession(input.sessionID);
+      const context = renderActiveGoalContext(state2);
+      setUiOnly(output, context ? uiSnapshot(context) : uiStatus("no active goal"));
+      return;
+    }
+    if (parsed.subcommand === "pause") {
+      const state2 = await store.getSession(input.sessionID);
+      if (!state2.goal || state2.goal.status !== "active") {
+        setUiOnly(output, uiStatus("no active goal"));
+        return;
+      }
+      await store.updateGoal(input.sessionID, (goal) => {
+        goal.status = "paused";
+        goal.updatedAt = Date.now();
+      });
+      await store.setFlags(input.sessionID, { autoContinuationSuppressed: true });
+      setUiOnly(output, uiStatus("paused"));
+      return;
+    }
+    const state = await store.getSession(input.sessionID);
+    if (!state.goal || state.goal.status !== "active" && state.goal.status !== "paused") {
+      setUiOnly(output, uiStatus("no active goal"));
+      return;
+    }
+    await store.updateGoal(input.sessionID, (goal) => {
+      goal.status = "dropped";
+      goal.droppedAt = Date.now();
+      goal.updatedAt = Date.now();
+    });
+    await store.setFlags(input.sessionID, {
+      autoContinuationSuppressed: true,
+      continuationInFlight: false
+    });
+    setUiOnly(output, uiStatus("dropped"));
+  } catch (error) {
+    setUiOnly(output, uiStatus(error instanceof Error ? error.message : String(error)));
+  }
+}
+
 // src/goal-tool.ts
+import { tool } from "@opencode-ai/plugin/tool";
 var schema = tool.schema;
 function createGoalTool(store) {
   return tool({
@@ -14822,6 +14968,12 @@ var plugin = async (input, rawOptions) => {
   return {
     tool: {
       goal: createGoalTool(store)
+    },
+    config: async (config2) => {
+      registerGoalCommand(config2);
+    },
+    "command.execute.before": async (input2, output) => {
+      await handleGoalCommand(input2, output, store);
     },
     "chat.message": async (input2, output) => {
       await runtime.onChatMessage(input2, output);

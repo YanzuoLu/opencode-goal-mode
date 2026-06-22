@@ -1,4 +1,9 @@
-type GoalStartAction = "set" | "replace" | "resume";
+export { goalStartPromptText } from "./context";
+type SolidView = {
+    createElement: (type: string) => any;
+    insert: (element: any, child: unknown) => void;
+    setProp: (element: any, key: string, value: unknown) => void;
+};
 type GoalTuiApi = {
     route?: {
         current?: {
@@ -26,10 +31,15 @@ type GoalTuiApi = {
             replace?: (render: () => unknown, onClose?: () => void) => void;
             clear?: () => void;
         };
+        Dialog?: (props: any) => unknown;
         DialogSelect?: (props: any) => unknown;
         DialogPrompt?: (props: any) => unknown;
         DialogAlert?: (props: any) => unknown;
     };
+    solidView?: SolidView;
+    theme?: {
+        current?: Record<string, unknown>;
+    } | Record<string, unknown>;
     keymap?: {
         registerLayer?: (layer: any) => () => void;
     };
@@ -47,7 +57,6 @@ export declare function currentSessionID(api: {
         };
     };
 }): string | undefined;
-export declare function goalStartPromptText(context: string, action: GoalStartAction): string;
 export declare function registerGoalTuiCommand(api: GoalTuiApi, rawOptions?: unknown): () => void;
 export declare function tui(api: GoalTuiApi, rawOptions?: unknown): Promise<void>;
 declare const _default: {
