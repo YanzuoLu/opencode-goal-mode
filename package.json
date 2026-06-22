@@ -1,6 +1,6 @@
 {
   "name": "opencode-goal-mode",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Persistent goal mode plugin for opencode",
   "repository": {
     "type": "git",
@@ -30,7 +30,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "compile": "rm -rf dist && bun build src/index.ts src/tui.ts --outdir dist --target node --format esm --external @opencode-ai/plugin --external @opencode-ai/plugin/* --external @opencode-ai/sdk --external @opencode-ai/sdk/* && tsc --emitDeclarationOnly",
+    "compile": "rm -rf dist && bun build src/index.ts src/tui.ts --outdir dist --target node --format esm --external @opencode-ai/plugin --external @opencode-ai/plugin/* --external @opencode-ai/sdk --external @opencode-ai/sdk/* && tsc --emitDeclarationOnly && perl -0pi -e 's/[ \\t]+$//gm' dist/index.js dist/tui.js",
     "pack:dry": "npm pack --dry-run --json",
     "pack:smoke": "bun run scripts/pack-smoke.ts",
     "smoke:tmux": "bun run scripts/smoke-tmux.ts"

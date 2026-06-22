@@ -14575,6 +14575,7 @@ class GoalStore {
 }
 
 // src/tui.ts
+var GOAL_MENU_SLASH = "goal-menu";
 function currentSessionID(api2) {
   const value = api2.route?.current?.params?.sessionID;
   return typeof value === "string" ? value : undefined;
@@ -14871,9 +14872,9 @@ function showGoalMenu(api2, store) {
 function commandFields() {
   return {
     title: "Goal",
-    value: "goal",
+    value: GOAL_MENU_SLASH,
     description: "Manage the active goal",
-    slash: { name: "goal" }
+    slash: { name: GOAL_MENU_SLASH }
   };
 }
 function registerGoalTuiCommand(api2, rawOptions) {
@@ -14888,7 +14889,7 @@ function registerGoalTuiCommand(api2, rawOptions) {
           namespace: "palette",
           name: "goal.menu",
           desc: "Manage the active goal",
-          slashName: "goal",
+          slashName: GOAL_MENU_SLASH,
           ...commandFields(),
           async run() {
             showGoalMenu(api2, store);

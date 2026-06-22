@@ -207,7 +207,7 @@ describe("goal TUI command", () => {
     expect(text).toContain('goal({ op: "complete" })');
   });
 
-  test("registers /goal as an action-only slash command through keymap layers", async () => {
+  test("registers /goal-menu as an action-only slash command through keymap layers", async () => {
     const { api, dispose } = await setup({ legacyCommand: true });
 
     expect(api.layers).toHaveLength(1);
@@ -216,10 +216,10 @@ describe("goal TUI command", () => {
     expect(registeredCommand(api)).toMatchObject({
       namespace: "palette",
       name: "goal.menu",
-      slashName: "goal",
+      slashName: "goal-menu",
       title: "Goal",
-      value: "goal",
-      slash: { name: "goal" },
+      value: "goal-menu",
+      slash: { name: "goal-menu" },
     });
     expect(typeof registeredCommand(api).run).toBe("function");
     expect(registeredCommand(api).input).toBeUndefined();
@@ -237,7 +237,7 @@ describe("goal TUI command", () => {
 
     expect(api.legacyRegistrations).toHaveLength(1);
     const command = api.legacyRegistrations[0]()[0];
-    expect(command).toMatchObject({ title: "Goal", value: "goal", slash: { name: "goal" } });
+    expect(command).toMatchObject({ title: "Goal", value: "goal-menu", slash: { name: "goal-menu" } });
     expect(typeof command.onSelect).toBe("function");
   });
 

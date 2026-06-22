@@ -5,6 +5,8 @@ import { GoalStore } from "./store";
 import type { GoalSessionState } from "./types";
 export { goalStartPromptText } from "./context";
 
+const GOAL_MENU_SLASH = "goal-menu";
+
 type GoalMenuAction = GoalStartAction | "show" | "pause" | "drop";
 
 type SolidView = {
@@ -390,9 +392,9 @@ function showGoalMenu(api: GoalTuiApi, store: GoalStore): void {
 function commandFields() {
   return {
     title: "Goal",
-    value: "goal",
+    value: GOAL_MENU_SLASH,
     description: "Manage the active goal",
-    slash: { name: "goal" },
+    slash: { name: GOAL_MENU_SLASH },
   };
 }
 
@@ -409,7 +411,7 @@ export function registerGoalTuiCommand(api: GoalTuiApi, rawOptions?: unknown): (
           namespace: "palette",
           name: "goal.menu",
           desc: "Manage the active goal",
-          slashName: "goal",
+          slashName: GOAL_MENU_SLASH,
           ...commandFields(),
           async run() {
             showGoalMenu(api, store);

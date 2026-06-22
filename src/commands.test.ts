@@ -32,7 +32,7 @@ describe("goal commands", () => {
     expect(parseGoalArgs("pause")).toEqual({ subcommand: "pause", rest: "" });
   });
 
-  test("empty goal args are a no-op so the TUI menu owns bare /goal", async () => {
+  test("empty goal args are a no-op so bare /goal does not start a model turn", async () => {
     const s = await store();
     const output: any = { parts: [] };
 
