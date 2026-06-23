@@ -1,9 +1,11 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 
 import {
+  GOAL_START_SUFFIX,
   renderActiveGoalContext,
   renderCompactionContext,
   renderContinuationPrompt,
+  stripGoalContextBlocks,
 } from "./context";
 import type { GoalRuntimeFlagPatch, GoalStore } from "./store";
 
@@ -151,17 +153,22 @@ export class GoalRuntimeHooks {
     input: { sessionID: string; messageID?: string },
     output: { parts: any[] },
   ): Promise<void> {
-    const text = textFromParts(output.parts);
-    if (!text) return;
+    const raw = textFromParts(output.parts);
+    if (!raw) return;
 
     const state = await this.store.getSession(input.sessionID);
     if (!state.goal || state.goal.status !== "active") return;
 
-    if (state.flags.ignoredInputTexts.includes(text)) {
-      state.flags.ignoredInputTexts = state.flags.ignoredInputTexts.filter((item) => item !== text);
-      await this.store.saveSession(state);
-      return;
-    }
+    // Goal kickoffs (set/replace/resume) always carry this suffix. opencode may
+    // merge them with the command template + raw arguments before chat.message
+    // sees them, so match by a stable sentinel substring rather than the brittle
+    // full-string equality the old ignoredInputTexts used. Never capture a kickoff
+    // as a supplement — that mismatch is what produced the nesting bug.
+    if (raw.includes(GOAL_START_SUFFIX)) return;
+
+    // Defense-in-depth: strip any rendered context block before storing.
+    const text = stripGoalContextBlocks(raw);
+    if (!text) return;
 
     await this.store.appendSupplement(input.sessionID, {
       messageID: input.messageID,

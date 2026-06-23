@@ -29,19 +29,33 @@ var ACTIVE_GOAL_RULES = [
 var COMPACTION_NOTICE = "The previous conversation context may have been compacted. The active_goal_context block is the authoritative source of the goal objective and supplemental instructions.";
 
 // src/context.ts
-function goalStartPromptText(context, action) {
-  const instruction = action === "resume" ? "Resume working toward the active goal." : action === "replace" ? "Begin working toward the replacement active goal." : "Begin working toward the active goal.";
-  return `${context}
+var GOAL_START_INSTRUCTIONS = {
+  set: "Begin working toward the active goal.",
+  replace: "Begin working toward the replacement active goal.",
+  resume: "Resume working toward the active goal."
+};
+var GOAL_START_SUFFIX = 'If the goal is now complete, call goal({ op: "complete" }).';
+function goalStartPromptText(action) {
+  return `${GOAL_START_INSTRUCTIONS[action]}
+${GOAL_START_SUFFIX}`;
+}
+var GOAL_CONTEXT_BLOCK = /<active_goal_context>[\s\S]*?<\/active_goal_context>/g;
+function stripGoalContextBlocks(text) {
+  return text.replace(GOAL_CONTEXT_BLOCK, "").trim();
+}
+var GOAL_SNAPSHOT_LABEL = "Read-only snapshot — this is the exact goal context the model sees in its system prompt every turn. It is not sent as a new message.";
+function goalSnapshotLabel(context) {
+  return `${GOAL_SNAPSHOT_LABEL}
 
-${instruction}
-If the goal is now complete, call goal({ op: "complete" }).`;
+${context}`;
 }
 function renderActiveGoalContext(state, options = {}) {
   const goal = state.goal;
   if (!goal || goal.status !== "active")
     return;
-  const supplements = goal.supplements.length ? goal.supplements.map((item, index) => `<instruction index="${index + 1}" id="${escapeXml(item.id)}" source="${escapeXml(item.source)}">
-${escapeXml(item.text)}
+  const cleaned = goal.supplements.map((item) => ({ item, text: stripGoalContextBlocks(item.text) })).filter((entry) => entry.text.length > 0);
+  const supplements = cleaned.length ? cleaned.map(({ item, text }, index) => `<instruction index="${index + 1}" id="${escapeXml(item.id)}" source="${escapeXml(item.source)}">
+${escapeXml(text)}
 </instruction>`).join(`
 `) : "<none />";
   const notice = options.includeCompactionNotice ? `
@@ -95,7 +109,7 @@ var subcommands = new Set([
 function registerGoalCommand(config) {
   config.command = Object.assign({}, config.command, {
     goal: {
-      template: "Manage persistent goal mode",
+      template: "",
       description: "Manage the active goal"
     }
   });
@@ -125,23 +139,15 @@ This message is not sent to the model.
 Action: ${action}`;
 }
 function uiSnapshot(context) {
-  return `▣ Goal Mode | UI-only goal snapshot
-This message is not sent to the model.
-
-${context}`;
+  return goalSnapshotLabel(context);
 }
 async function pushGoalStartPrompt(sessionID, output, store, action) {
   const state = await store.getSession(sessionID);
-  const context = renderActiveGoalContext(state);
-  if (!context) {
+  if (!state.goal || state.goal.status !== "active") {
     setUiOnly(output, uiStatus("no active goal"));
     return;
   }
-  const text = goalStartPromptText(context, action);
-  await store.setFlags(sessionID, {
-    ignoredInputTexts: [...state.flags.ignoredInputTexts, text]
-  });
-  pushVisibleGoalPrompt(output, text);
+  pushVisibleGoalPrompt(output, goalStartPromptText(action));
 }
 async function handleGoalCommand(input, output, store) {
   if (input.command !== "goal")
@@ -14702,17 +14708,17 @@ class GoalRuntimeHooks {
     });
   }
   async onChatMessage(input, output) {
-    const text = textFromParts(output.parts);
-    if (!text)
+    const raw = textFromParts(output.parts);
+    if (!raw)
       return;
     const state = await this.store.getSession(input.sessionID);
     if (!state.goal || state.goal.status !== "active")
       return;
-    if (state.flags.ignoredInputTexts.includes(text)) {
-      state.flags.ignoredInputTexts = state.flags.ignoredInputTexts.filter((item) => item !== text);
-      await this.store.saveSession(state);
+    if (raw.includes(GOAL_START_SUFFIX))
       return;
-    }
+    const text = stripGoalContextBlocks(raw);
+    if (!text)
+      return;
     await this.store.appendSupplement(input.sessionID, {
       messageID: input.messageID,
       source: "user",
@@ -14769,6 +14775,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 var EMPTY_DATA = { sessions: {} };
+var MAX_SUPPLEMENTS = 50;
 function defaultFlags() {
   return {
     continuationInFlight: false,
@@ -14777,23 +14784,20 @@ function defaultFlags() {
     pendingQuestionCount: 0,
     pendingPermissionCount: 0,
     compactionNoticePending: false,
-    compactionNoticeSkipNextClear: false,
-    ignoredInputTexts: []
+    compactionNoticeSkipNextClear: false
   };
 }
 function cloneFlags(flags) {
   return {
     ...defaultFlags(),
     ...flags,
-    compactionNoticeSkipNextClear: flags.compactionNoticeSkipNextClear ?? false,
-    ignoredInputTexts: [...flags.ignoredInputTexts]
+    compactionNoticeSkipNextClear: flags.compactionNoticeSkipNextClear ?? false
   };
 }
 function newSession(sessionID) {
   return {
     sessionID,
-    flags: defaultFlags(),
-    seenUserMessageIDs: []
+    flags: defaultFlags()
   };
 }
 function newGoal(objective) {
@@ -14823,8 +14827,7 @@ function cloneGoal(goal) {
 function cloneSession(state) {
   const cloned = {
     sessionID: state.sessionID,
-    flags: cloneFlags(state.flags),
-    seenUserMessageIDs: [...state.seenUserMessageIDs]
+    flags: cloneFlags(state.flags)
   };
   if (state.goal) {
     cloned.goal = cloneGoal(state.goal);
@@ -14865,11 +14868,9 @@ class GoalStore {
   }
   async replaceGoal(sessionID, objective) {
     const data = await this.readData();
-    const existing = data.sessions[sessionID];
     const state = {
       sessionID,
       flags: defaultFlags(),
-      seenUserMessageIDs: existing ? [...existing.seenUserMessageIDs] : [],
       goal: newGoal(objective)
     };
     data.sessions[sessionID] = state;
@@ -14883,7 +14884,10 @@ class GoalStore {
     if (!goal || goal.status !== "active") {
       return cloneSession(state);
     }
-    const text = input.text.trim();
+    const text = stripGoalContextBlocks(input.text.trim());
+    if (!text) {
+      return cloneSession(state);
+    }
     const id = supplementID(input, text);
     if (!goal.supplements.some((supplement) => supplement.id === id)) {
       const supplement = {
@@ -14896,6 +14900,9 @@ class GoalStore {
         supplement.messageID = input.messageID;
       }
       goal.supplements.push(supplement);
+      if (goal.supplements.length > MAX_SUPPLEMENTS) {
+        goal.supplements.splice(0, goal.supplements.length - MAX_SUPPLEMENTS);
+      }
     }
     state.flags.autoContinuationSuppressed = false;
     await this.writeData(data);
@@ -14907,8 +14914,7 @@ class GoalStore {
     state.flags = {
       ...defaultFlags(),
       ...state.flags,
-      ...patch,
-      ignoredInputTexts: patch.ignoredInputTexts !== undefined ? [...patch.ignoredInputTexts] : state.flags.ignoredInputTexts
+      ...patch
     };
     await this.writeData(data);
     return cloneSession(state);

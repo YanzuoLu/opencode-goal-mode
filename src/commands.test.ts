@@ -19,7 +19,7 @@ describe("goal commands", () => {
 
     expect(config.command.goal).toMatchObject({
       description: "Manage the active goal",
-      template: "Manage persistent goal mode",
+      template: "",
     });
   });
 
@@ -53,8 +53,8 @@ describe("goal commands", () => {
       status: "active",
     });
     expect(output.parts).toHaveLength(1);
-    expect(output.parts[0].text).toContain("<active_goal_context>");
-    expect(output.parts[0].text).toContain("Ship inline goal");
+    expect(output.parts[0].text).toContain("Begin working toward the active goal");
+    expect(output.parts[0].text).not.toContain("<active_goal_context>");
     expect(output.parts[0].ignored).toBeUndefined();
     expect(output.parts[0].synthetic).toBeUndefined();
     expect(output.noReply).toBeUndefined();
@@ -71,9 +71,12 @@ describe("goal commands", () => {
       status: "active",
     });
     expect(output.parts).toEqual([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("Ship set goal") }),
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Begin working toward the active goal"),
+      }),
     ]);
-    expect(output.parts[0].text).toContain("<active_goal_context>");
+    expect(output.parts[0].text).not.toContain("<active_goal_context>");
     expect(output.parts[0].ignored).toBeUndefined();
     expect(output.parts[0].synthetic).toBeUndefined();
     expect(output.noReply).toBeUndefined();
@@ -91,9 +94,12 @@ describe("goal commands", () => {
       status: "active",
     });
     expect(output.parts).toEqual([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("New goal") }),
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Begin working toward the replacement active goal"),
+      }),
     ]);
-    expect(output.parts[0].text).toContain("replacement active goal");
+    expect(output.parts[0].text).not.toContain("<active_goal_context>");
     expect(output.parts[0].ignored).toBeUndefined();
     expect(output.parts[0].synthetic).toBeUndefined();
     expect(output.noReply).toBeUndefined();
@@ -114,9 +120,12 @@ describe("goal commands", () => {
     expect(state.goal).toMatchObject({ objective: "Resume goal", status: "active" });
     expect(state.flags.autoContinuationSuppressed).toBe(false);
     expect(output.parts).toEqual([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("Resume goal") }),
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Resume working toward the active goal"),
+      }),
     ]);
-    expect(output.parts[0].text).toContain("Resume working toward the active goal");
+    expect(output.parts[0].text).not.toContain("<active_goal_context>");
     expect(output.parts[0].ignored).toBeUndefined();
     expect(output.parts[0].synthetic).toBeUndefined();
     expect(output.noReply).toBeUndefined();
@@ -133,7 +142,7 @@ describe("goal commands", () => {
     const state = await s.getSession("s1");
     expect(state.goal).toMatchObject({ objective: "Suppressed goal", status: "active" });
     expect(state.flags.autoContinuationSuppressed).toBe(false);
-    expect(output.parts[0].text).toContain("Suppressed goal");
+    expect(output.parts[0].text).toContain("Resume working toward the active goal");
     expect(output.parts[0].ignored).toBeUndefined();
     expect(output.parts[0].synthetic).toBeUndefined();
     expect(output.noReply).toBeUndefined();
@@ -151,10 +160,11 @@ describe("goal commands", () => {
       expect.objectContaining({
         type: "text",
         ignored: true,
-        text: expect.stringContaining("UI-only goal snapshot"),
+        text: expect.stringContaining("Read-only snapshot"),
       }),
     ]);
     expect(output.parts[0].text).toContain("Show goal");
+    expect(output.parts[0].text).toContain("<active_goal_context>");
     expect(output.parts[0].synthetic).toBeUndefined();
   });
 

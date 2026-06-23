@@ -1,6 +1,6 @@
 import type { Config } from "@opencode-ai/plugin";
 
-import { goalStartPromptText, renderActiveGoalContext } from "./context";
+import { goalSnapshotLabel, goalStartPromptText, renderActiveGoalContext } from "./context";
 import type { GoalStore } from "./store";
 
 export type GoalSubcommand = "menu" | "set" | "replace" | "show" | "pause" | "resume" | "drop";
@@ -19,7 +19,11 @@ type GoalCommandOutput = { parts: any[]; noReply?: boolean };
 export function registerGoalCommand(config: Config): void {
   config.command = Object.assign({}, config.command, {
     goal: {
-      template: "Manage persistent goal mode",
+      // Empty template: opencode appends the raw arguments to the user message, so
+      // a non-empty template (the old "Manage persistent goal mode") only leaked
+      // noise into the model's context. The kickoff/UI text is supplied via the
+      // command.execute.before parts instead.
+      template: "",
       description: "Manage the active goal",
     },
   });
@@ -52,7 +56,7 @@ function uiStatus(action: string): string {
 }
 
 function uiSnapshot(context: string): string {
-  return `▣ Goal Mode | UI-only goal snapshot\nThis message is not sent to the model.\n\n${context}`;
+  return goalSnapshotLabel(context);
 }
 
 async function pushGoalStartPrompt(
@@ -62,17 +66,15 @@ async function pushGoalStartPrompt(
   action: "set" | "replace" | "resume",
 ): Promise<void> {
   const state = await store.getSession(sessionID);
-  const context = renderActiveGoalContext(state);
-  if (!context) {
+  if (!state.goal || state.goal.status !== "active") {
     setUiOnly(output, uiStatus("no active goal"));
     return;
   }
 
-  const text = goalStartPromptText(context, action);
-  await store.setFlags(sessionID, {
-    ignoredInputTexts: [...state.flags.ignoredInputTexts, text],
-  });
-  pushVisibleGoalPrompt(output, text);
+  // Short, XML-free kickoff. The full context is injected every turn by
+  // onSystemTransform; onChatMessage skips this message via GOAL_START_SUFFIX so
+  // it is never captured as a supplement.
+  pushVisibleGoalPrompt(output, goalStartPromptText(action));
 }
 
 export async function handleGoalCommand(

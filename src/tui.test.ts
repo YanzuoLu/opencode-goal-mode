@@ -189,15 +189,17 @@ function promptText(api: any): string {
   return promptPart(api).text;
 }
 
-function expectVisiblePromptCall(api: any) {
+function expectKickoffPromptCall(api: any) {
   const call = api.promptCalls[0];
   expect(call.sessionID).toBe(SESSION_ID);
   expect(call.path).toBeUndefined();
   expect(call.body).toBeUndefined();
   expect(call.parts).toHaveLength(1);
-  expect(promptPart(api)).toEqual({ type: "text", text: promptText(api) });
-  expect("synthetic" in promptPart(api)).toBe(false);
+  // Kickoff is synthetic: it drives the model turn but textFromParts filters it so
+  // it is never captured as a supplement.
+  expect(promptPart(api)).toEqual({ type: "text", text: promptText(api), synthetic: true });
   expect("ignored" in promptPart(api)).toBe(false);
+  expect(promptText(api)).not.toContain("<active_goal_context>");
   return call;
 }
 
@@ -215,10 +217,10 @@ describe("goal TUI command", () => {
     expect(currentSessionID({})).toBeUndefined();
   });
 
-  test("builds the goal start prompt text around rendered context", () => {
-    const text = goalStartPromptText("<active_goal_context>goal</active_goal_context>", "replace");
+  test("builds an XML-free goal start prompt text", () => {
+    const text = goalStartPromptText("replace");
 
-    expect(text).toContain("<active_goal_context>goal</active_goal_context>");
+    expect(text).not.toContain("<active_goal_context>");
     expect(text).toContain("Begin working toward the replacement active goal.");
     expect(text).toContain('goal({ op: "complete" })');
   });
@@ -265,6 +267,9 @@ describe("goal TUI command", () => {
 
     expect(dialog.type).toBe("goal-detail");
     expect(dialog.props.title).toBe("Active goal");
+    // Labelled as the read-only, model-visible context so the user can tell what
+    // the model actually sees.
+    expect(dialog.props.context).toContain("Read-only snapshot");
     expect(dialog.props.context).toContain("<active_goal_context>");
     expect(dialog.props.context).toContain("Ship the TUI command");
     expect(api.promptCalls).toHaveLength(0);
@@ -433,22 +438,21 @@ describe("goal TUI command", () => {
     expect(state.goal).toMatchObject({ objective: "Ship the set command", status: "active" });
     expect(api.toasts.at(-1)).toMatchObject({ message: "Goal set" });
     expect(api.promptCalls).toHaveLength(1);
-    const call = expectVisiblePromptCall(api);
+    const call = expectKickoffPromptCall(api);
     expect(call.model).toEqual({ modelID: "gpt-5.5", providerID: "openai" });
     expect(call.agent).toBe("build");
     expect(call.variant).toBe("reasoning");
-    expect(promptText(api)).toContain("<active_goal_context>");
-    expect(promptText(api)).toContain("Ship the set command");
+    expect(promptText(api)).toContain("Begin working toward the active goal");
   });
 
-  test("set prompt is visible to the model but ignored as a supplement", async () => {
+  test("set kickoff drives the model turn but is not captured as a supplement", async () => {
     const { api, store } = await setup();
     const runtime = new GoalRuntimeHooks(store, { session: { promptAsync: async () => undefined } } as any);
 
     const dialog = await selectGoalAction(api, "set");
     await dialog.props.onConfirm("Do not self-capture");
 
-    expectVisiblePromptCall(api);
+    expectKickoffPromptCall(api);
     await runtime.onChatMessage(
       { sessionID: SESSION_ID, messageID: "kickoff-message" },
       { parts: api.promptCalls[0].parts } as any,
@@ -456,7 +460,6 @@ describe("goal TUI command", () => {
 
     const state = await store.getSession(SESSION_ID);
     expect(state.goal?.supplements).toHaveLength(0);
-    expect(state.flags.ignoredInputTexts).toEqual([]);
   });
 
   test("replace writes active goal state, emits a toast, and prompts with active goal context", async () => {
@@ -473,9 +476,8 @@ describe("goal TUI command", () => {
     });
     expect(api.toasts.at(-1)).toMatchObject({ message: "Goal replaced" });
     expect(api.promptCalls).toHaveLength(1);
-    expectVisiblePromptCall(api);
-    expect(promptText(api)).toContain("<active_goal_context>");
-    expect(promptText(api)).toContain("Ship the replacement command");
+    expectKickoffPromptCall(api);
+    expect(promptText(api)).toContain("Begin working toward the replacement active goal");
   });
 
   test("resume changes paused suppressed goal to active, clears suppression, and prompts", async () => {
@@ -492,9 +494,8 @@ describe("goal TUI command", () => {
     expect(api.toasts).toHaveLength(1);
     expect(api.toasts[0]).toMatchObject({ message: "Goal resumed" });
     expect(api.promptCalls).toHaveLength(1);
-    expectVisiblePromptCall(api);
-    expect(promptText(api)).toContain("<active_goal_context>");
-    expect(promptText(api)).toContain("Resume this goal");
+    expectKickoffPromptCall(api);
+    expect(promptText(api)).toContain("Resume working toward the active goal");
   });
 
   test("resume clears suppression and prompts for an already active goal", async () => {
@@ -510,9 +511,8 @@ describe("goal TUI command", () => {
     expect(api.toasts).toHaveLength(1);
     expect(api.toasts[0]).toMatchObject({ message: "Goal resumed" });
     expect(api.promptCalls).toHaveLength(1);
-    expectVisiblePromptCall(api);
-    expect(promptText(api)).toContain("<active_goal_context>");
-    expect(promptText(api)).toContain("Continue this active goal");
+    expectKickoffPromptCall(api);
+    expect(promptText(api)).toContain("Resume working toward the active goal");
   });
 
   test("set refuses missing model data before mutating state", async () => {

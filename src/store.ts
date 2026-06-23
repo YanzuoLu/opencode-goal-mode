@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { stripGoalContextBlocks } from "./context";
+
 import type {
   GoalRecord,
   GoalRuntimeFlagPatch,
@@ -28,6 +30,11 @@ export type {
 
 const EMPTY_DATA: GoalStoreData = { sessions: {} };
 
+// Hard cap on stored supplements per goal. Each real user message after /goal
+// becomes a supplement; without a cap the system-prompt injection would grow
+// unbounded over a long session. Oldest entries are dropped when exceeded.
+const MAX_SUPPLEMENTS = 50;
+
 function defaultFlags(): GoalRuntimeFlags {
   return {
     continuationInFlight: false,
@@ -37,7 +44,6 @@ function defaultFlags(): GoalRuntimeFlags {
     pendingPermissionCount: 0,
     compactionNoticePending: false,
     compactionNoticeSkipNextClear: false,
-    ignoredInputTexts: [],
   };
 }
 
@@ -46,7 +52,6 @@ function cloneFlags(flags: GoalRuntimeFlags): GoalRuntimeFlags {
     ...defaultFlags(),
     ...flags,
     compactionNoticeSkipNextClear: flags.compactionNoticeSkipNextClear ?? false,
-    ignoredInputTexts: [...flags.ignoredInputTexts],
   };
 }
 
@@ -54,7 +59,6 @@ function newSession(sessionID: string): GoalSessionState {
   return {
     sessionID,
     flags: defaultFlags(),
-    seenUserMessageIDs: [],
   };
 }
 
@@ -93,7 +97,6 @@ function cloneSession(state: GoalSessionState): GoalSessionState {
   const cloned: GoalSessionState = {
     sessionID: state.sessionID,
     flags: cloneFlags(state.flags),
-    seenUserMessageIDs: [...state.seenUserMessageIDs],
   };
 
   if (state.goal) {
@@ -144,11 +147,9 @@ export class GoalStore {
 
   async replaceGoal(sessionID: string, objective: string): Promise<GoalSessionState> {
     const data = await this.readData();
-    const existing = data.sessions[sessionID];
     const state: GoalSessionState = {
       sessionID,
       flags: defaultFlags(),
-      seenUserMessageIDs: existing ? [...existing.seenUserMessageIDs] : [],
       goal: newGoal(objective),
     };
     data.sessions[sessionID] = state;
@@ -168,7 +169,12 @@ export class GoalStore {
       return cloneSession(state);
     }
 
-    const text = input.text.trim();
+    // Defense-in-depth: never persist a rendered goal-context block as a
+    // supplement (that is what produced the nested <active_goal_context> bug).
+    const text = stripGoalContextBlocks(input.text.trim());
+    if (!text) {
+      return cloneSession(state);
+    }
     const id = supplementID(input, text);
 
     if (!goal.supplements.some((supplement) => supplement.id === id)) {
@@ -182,6 +188,9 @@ export class GoalStore {
         supplement.messageID = input.messageID;
       }
       goal.supplements.push(supplement);
+      if (goal.supplements.length > MAX_SUPPLEMENTS) {
+        goal.supplements.splice(0, goal.supplements.length - MAX_SUPPLEMENTS);
+      }
     }
     state.flags.autoContinuationSuppressed = false;
 
@@ -199,9 +208,6 @@ export class GoalStore {
       ...defaultFlags(),
       ...state.flags,
       ...patch,
-      ignoredInputTexts: patch.ignoredInputTexts !== undefined
-        ? [...patch.ignoredInputTexts]
-        : state.flags.ignoredInputTexts,
     };
 
     await this.writeData(data);

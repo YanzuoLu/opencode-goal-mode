@@ -1,6 +1,6 @@
 {
   "name": "opencode-goal-mode",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Persistent goal mode plugin for opencode",
   "repository": {
     "type": "git",
@@ -45,5 +45,11 @@
     "@types/node": "^24.12.2",
     "typescript": "^5.8.2"
   },
-  "trustedDependencies": []
+  "trustedDependencies": [],
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

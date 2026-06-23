@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  goalSnapshotLabel,
   goalStartPromptText,
   renderActiveGoalContext,
   renderCompactionContext,
@@ -10,7 +11,6 @@ import type { GoalSessionState } from "./types";
 
 const state: GoalSessionState = {
   sessionID: "s1",
-  seenUserMessageIDs: [],
   flags: {
     continuationInFlight: false,
     turnHadToolCalls: false,
@@ -19,7 +19,6 @@ const state: GoalSessionState = {
     pendingPermissionCount: 0,
     compactionNoticePending: true,
     compactionNoticeSkipNextClear: false,
-    ignoredInputTexts: [],
   },
   goal: {
     id: "g1",
@@ -62,14 +61,48 @@ describe("goal context rendering", () => {
     expect(rendered).toContain("Build the plugin");
   });
 
-  test("builds goal start prompt text for set, replace, and resume", () => {
-    const context = "<active_goal_context>Ship it</active_goal_context>";
+  test("builds an XML-free goal start prompt text for set, replace, and resume", () => {
+    expect(goalStartPromptText("set")).toContain("Begin working toward the active goal.");
+    expect(goalStartPromptText("replace")).toContain("Begin working toward the replacement active goal.");
+    expect(goalStartPromptText("resume")).toContain("Resume working toward the active goal.");
+    expect(goalStartPromptText("set")).toContain('goal({ op: "complete" })');
+    // The kickoff must never embed the rendered context block; the system prompt
+    // already injects it every turn. Embedding it duplicated context and caused
+    // nested <active_goal_context> once captured as a supplement.
+    expect(goalStartPromptText("set")).not.toContain("<active_goal_context>");
+  });
 
-    expect(goalStartPromptText(context, "set")).toContain("Begin working toward the active goal.");
-    expect(goalStartPromptText(context, "replace")).toContain("Begin working toward the replacement active goal.");
-    expect(goalStartPromptText(context, "resume")).toContain("Resume working toward the active goal.");
-    expect(goalStartPromptText(context, "set")).toContain(context);
-    expect(goalStartPromptText(context, "set")).toContain('goal({ op: "complete" })');
+  test("goalSnapshotLabel prefixes the context with a read-only model-visibility banner", () => {
+    const labelled = goalSnapshotLabel("<active_goal_context>x</active_goal_context>");
+
+    expect(labelled).toContain("Read-only snapshot");
+    expect(labelled).toContain("the model sees");
+    expect(labelled).toContain("<active_goal_context>x</active_goal_context>");
+  });
+
+  test("self-heals legacy supplements that embed a rendered context block", () => {
+    const nested = "<active_goal_context>\n<objective>\nold\n</objective>\n</active_goal_context>";
+    const healState: GoalSessionState = {
+      ...state,
+      goal: state.goal
+        ? {
+            ...state.goal,
+            supplements: [
+              { id: "n1", source: "user", text: `keep this${nested}`, createdAt: 5 },
+              { id: "n2", source: "user", text: nested, createdAt: 6 },
+            ],
+          }
+        : undefined,
+    };
+
+    const rendered = renderActiveGoalContext(healState) ?? "";
+
+    // Exactly one active_goal_context wrapper — no nesting.
+    expect(rendered.match(/<active_goal_context>/g)).toHaveLength(1);
+    expect(rendered).toContain("keep this");
+    // The supplement that was nothing but a context block is dropped entirely.
+    expect(rendered).toContain('<instruction index="1"');
+    expect(rendered).not.toContain('<instruction index="2"');
   });
 
   test("returns undefined when the goal is missing or inactive", () => {

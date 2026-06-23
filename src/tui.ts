@@ -1,4 +1,4 @@
-import { goalStartPromptText, renderActiveGoalContext } from "./context";
+import { goalSnapshotLabel, goalStartPromptText, renderActiveGoalContext } from "./context";
 import type { GoalStartAction } from "./context";
 import { parseOptions } from "./plugin-options";
 import { GoalStore } from "./store";
@@ -173,21 +173,19 @@ async function promptWithActiveGoal(
   state: GoalSessionState,
   action: GoalStartAction,
 ): Promise<void> {
-  const context = renderActiveGoalContext(state);
-  if (!context) {
+  if (!state.goal || state.goal.status !== "active") {
     toast(api, "error", "No active goal");
     return;
   }
 
-  const text = goalStartPromptText(context, action);
-  await store.setFlags(info.sessionID, {
-    ignoredInputTexts: [...state.flags.ignoredInputTexts, text],
-  });
-
+  // Short, XML-free kickoff sent as a synthetic part: it still drives the model
+  // turn (like the auto-continuation prompt) but textFromParts filters synthetic
+  // parts, so it is never captured as a supplement. The full context is injected
+  // every turn by onSystemTransform.
   const input: any = {
     sessionID: info.sessionID,
     model: info.model,
-    parts: [{ type: "text", text }],
+    parts: [{ type: "text", text: goalStartPromptText(action), synthetic: true }],
   };
   if (info.agent) input.agent = info.agent;
   if (info.variant !== undefined) input.variant = info.variant;
@@ -276,7 +274,8 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
     return;
   }
 
-  const context = renderActiveGoalContext(await store.getSession(sessionID)) ?? "No active goal";
+  const rendered = renderActiveGoalContext(await store.getSession(sessionID));
+  const context = rendered ? goalSnapshotLabel(rendered) : "No active goal";
 
   const view = api.solidView ?? (api.ui?.Dialog && !api.ui?.DialogAlert ? await loadSolidView() : undefined);
   api.ui?.dialog?.replace?.(() => {

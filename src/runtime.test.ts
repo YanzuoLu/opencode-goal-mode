@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { handleGoalCommand } from "./commands";
+import { goalStartPromptText } from "./context";
 import plugin from "./index";
 import { GoalRuntimeHooks } from "./runtime";
 import { GoalStore } from "./store";
@@ -29,23 +30,24 @@ describe("GoalRuntimeHooks", () => {
     expect(state.goal?.supplements[0]?.text).toBe("Prefer server-only.");
   });
 
-  test("does not capture ignored /goal kickoff text as supplement", async () => {
+  test("does not capture a merged goal kickoff message as a supplement (regression: no nesting)", async () => {
     const { store, runtime } = await setup();
-    const state = await store.createGoal("s1", "Ship it");
-    state.flags.ignoredInputTexts.push("Goal mode initialized.");
-    await store.saveSession(state);
+    await store.createGoal("s1", "Ship it");
 
+    // Reproduces the exact shape from the corrupted state.json: opencode merges the
+    // command template + raw arguments + the pushed kickoff into one user message.
+    // The old exact-match dedup missed this and stored it as a supplement, which then
+    // rendered as a nested <active_goal_context>. The suffix sentinel must skip it.
+    const merged = `Manage persistent goal mode\n\nShip it\n\n${goalStartPromptText("set")}`;
     await runtime.onChatMessage(
       { sessionID: "s1", messageID: "m2" },
-      { message: { id: "m2" }, parts: [{ type: "text", text: "Goal mode initialized." }] } as any,
+      { parts: [{ type: "text", text: merged }] } as any,
     );
 
-    const next = await store.getSession("s1");
-    expect(next.goal?.supplements).toHaveLength(0);
-    expect(next.flags.ignoredInputTexts).toEqual([]);
+    expect((await store.getSession("s1")).goal?.supplements).toHaveLength(0);
   });
 
-  test("does not self-capture server /goal kickoff text as supplement", async () => {
+  test("does not self-capture the server /goal kickoff as a supplement", async () => {
     const { store, runtime } = await setup();
     const output: any = { parts: [] };
 
@@ -54,11 +56,37 @@ describe("GoalRuntimeHooks", () => {
       output,
       store,
     );
-    await runtime.onChatMessage({ sessionID: "s1", messageID: "m-server-goal" }, output);
+    // The command pushes only the short kickoff; opencode also prepends the objective.
+    const merged = `Ship server kickoff\n\n${output.parts.map((p: any) => p.text).join("\n\n")}`;
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-server-goal" },
+      { parts: [{ type: "text", text: merged }] } as any,
+    );
 
-    const next = await store.getSession("s1");
-    expect(next.goal?.supplements).toHaveLength(0);
-    expect(next.flags.ignoredInputTexts).toEqual([]);
+    expect((await store.getSession("s1")).goal?.supplements).toHaveLength(0);
+  });
+
+  test("strips an embedded context block but keeps the rest of a real message", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m4" },
+      {
+        parts: [
+          {
+            type: "text",
+            text: "Real note <active_goal_context>x</active_goal_context> here",
+          },
+        ],
+      } as any,
+    );
+
+    const supplements = (await store.getSession("s1")).goal?.supplements ?? [];
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0]?.text).not.toContain("<active_goal_context>");
+    expect(supplements[0]?.text).toContain("Real note");
+    expect(supplements[0]?.text).toContain("here");
   });
 
   test("does not capture synthetic or ignored text parts", async () => {
@@ -436,7 +464,10 @@ describe("plugin runtime wiring", () => {
     );
 
     expect(config.command.goal).toMatchObject({ description: "Manage the active goal" });
-    expect(output.parts[0].text).toContain("Ship wired command");
+    // The kickoff part is now XML-free and carries only the short instruction; the
+    // objective reaches the model via opencode's args + the system-prompt injection.
+    expect(output.parts[0].text).toContain("Begin working toward the active goal");
+    expect(output.parts[0].text).not.toContain("<active_goal_context>");
     expect((await new GoalStore(statePath).getSession("s1")).goal).toMatchObject({
       objective: "Ship wired command",
       status: "active",

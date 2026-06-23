@@ -3,13 +3,38 @@ import { ACTIVE_GOAL_RULES, COMPACTION_NOTICE, escapeXml } from "./prompts";
 
 export type GoalStartAction = "set" | "replace" | "resume";
 
-export function goalStartPromptText(context: string, action: GoalStartAction): string {
-  const instruction = action === "resume"
-    ? "Resume working toward the active goal."
-    : action === "replace"
-      ? "Begin working toward the replacement active goal."
-      : "Begin working toward the active goal.";
-  return `${context}\n\n${instruction}\nIf the goal is now complete, call goal({ op: "complete" }).`;
+export const GOAL_START_INSTRUCTIONS: Record<GoalStartAction, string> = {
+  set: "Begin working toward the active goal.",
+  replace: "Begin working toward the replacement active goal.",
+  resume: "Resume working toward the active goal.",
+};
+
+export const GOAL_START_SUFFIX =
+  'If the goal is now complete, call goal({ op: "complete" }).';
+
+// The kickoff is a short, model-visible nudge ONLY. The full <active_goal_context>
+// XML is injected separately every turn via onSystemTransform, so embedding it here
+// (as the old implementation did) duplicated the context and — once captured as a
+// supplement — produced nested <active_goal_context> blocks. Keeping the kickoff
+// XML-free makes that nesting structurally impossible.
+export function goalStartPromptText(action: GoalStartAction): string {
+  return `${GOAL_START_INSTRUCTIONS[action]}\n${GOAL_START_SUFFIX}`;
+}
+
+const GOAL_CONTEXT_BLOCK = /<active_goal_context>[\s\S]*?<\/active_goal_context>/g;
+
+// Remove any rendered goal-context block from arbitrary text. Used both as a guard
+// before storing a supplement and at render time to self-heal already-corrupted
+// state that contains an embedded context block.
+export function stripGoalContextBlocks(text: string): string {
+  return text.replace(GOAL_CONTEXT_BLOCK, "").trim();
+}
+
+export const GOAL_SNAPSHOT_LABEL =
+  "Read-only snapshot — this is the exact goal context the model sees in its system prompt every turn. It is not sent as a new message.";
+
+export function goalSnapshotLabel(context: string): string {
+  return `${GOAL_SNAPSHOT_LABEL}\n\n${context}`;
 }
 
 export function renderActiveGoalContext(
@@ -19,11 +44,14 @@ export function renderActiveGoalContext(
   const goal = state.goal;
   if (!goal || goal.status !== "active") return undefined;
 
-  const supplements = goal.supplements.length
-    ? goal.supplements
+  const cleaned = goal.supplements
+    .map((item) => ({ item, text: stripGoalContextBlocks(item.text) }))
+    .filter((entry) => entry.text.length > 0);
+  const supplements = cleaned.length
+    ? cleaned
         .map(
-          (item, index) =>
-            `<instruction index="${index + 1}" id="${escapeXml(item.id)}" source="${escapeXml(item.source)}">\n${escapeXml(item.text)}\n</instruction>`,
+          ({ item, text }, index) =>
+            `<instruction index="${index + 1}" id="${escapeXml(item.id)}" source="${escapeXml(item.source)}">\n${escapeXml(text)}\n</instruction>`,
         )
         .join("\n")
     : "<none />";

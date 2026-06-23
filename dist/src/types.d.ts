@@ -9,7 +9,6 @@ export interface GoalRuntimeFlags {
     pendingPermissionCount: number;
     compactionNoticePending: boolean;
     compactionNoticeSkipNextClear: boolean;
-    ignoredInputTexts: string[];
 }
 export interface GoalSupplement {
     id: string;
@@ -31,7 +30,6 @@ export interface GoalRecord {
 export interface GoalSessionState {
     sessionID: string;
     flags: GoalRuntimeFlags;
-    seenUserMessageIDs: string[];
     goal?: GoalRecord;
 }
 export interface GoalStoreData {

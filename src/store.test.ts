@@ -30,7 +30,6 @@ describe("GoalStore", () => {
     const state = await store.createGoal("session-1", " Ship the store ");
 
     expect(state.sessionID).toBe("session-1");
-    expect(state.seenUserMessageIDs).toEqual([]);
     expect(state.flags).toEqual({
       continuationInFlight: false,
       turnHadToolCalls: false,
@@ -39,7 +38,6 @@ describe("GoalStore", () => {
       pendingPermissionCount: 0,
       compactionNoticePending: false,
       compactionNoticeSkipNextClear: false,
-      ignoredInputTexts: [],
     });
     expect(state.goal).toBeDefined();
     expect(state.goal).toMatchObject({
@@ -59,7 +57,6 @@ describe("GoalStore", () => {
 
     const state = await store.saveSession({
       sessionID: "session-1",
-      seenUserMessageIDs: ["message-1"],
       flags: {
         continuationInFlight: false,
         turnHadToolCalls: false,
@@ -68,12 +65,10 @@ describe("GoalStore", () => {
         pendingPermissionCount: 0,
         compactionNoticePending: false,
         compactionNoticeSkipNextClear: false,
-        ignoredInputTexts: ["ignored"],
       },
     });
 
     expect(state.goal).toBeUndefined();
-    expect(state.seenUserMessageIDs).toEqual(["message-1"]);
     expect(state.flags.autoContinuationSuppressed).toBe(true);
   });
 
@@ -104,7 +99,6 @@ describe("GoalStore", () => {
       continuationAssistantMessageID: "assistant-1",
       autoContinuationSuppressed: true,
       pendingQuestionCount: 2,
-      ignoredInputTexts: ["ignored"],
     });
     await store.appendSupplement("session-1", {
       messageID: "message-1",
@@ -128,7 +122,6 @@ describe("GoalStore", () => {
       pendingPermissionCount: 0,
       compactionNoticePending: false,
       compactionNoticeSkipNextClear: false,
-      ignoredInputTexts: [],
     });
   });
 
@@ -183,6 +176,47 @@ describe("GoalStore", () => {
     expect(state.goal?.supplements[0]?.messageID).toBeUndefined();
   });
 
+  test("appendSupplement strips embedded context blocks and skips block-only text", async () => {
+    const store = new GoalStore(storePath);
+    await store.createGoal("session-1", "Goal");
+
+    const blockOnly = await store.appendSupplement("session-1", {
+      messageID: "block-only",
+      source: "user",
+      text: "<active_goal_context>\n<objective>\nx\n</objective>\n</active_goal_context>",
+    });
+    expect(blockOnly.goal?.supplements).toHaveLength(0);
+
+    const mixed = await store.appendSupplement("session-1", {
+      messageID: "mixed",
+      source: "user",
+      text: "keep me <active_goal_context>x</active_goal_context>",
+    });
+    expect(mixed.goal?.supplements).toHaveLength(1);
+    expect(mixed.goal?.supplements[0]?.text).toBe("keep me");
+    expect(mixed.goal?.supplements[0]?.text).not.toContain("<active_goal_context>");
+  });
+
+  test("appendSupplement caps stored supplements and drops the oldest", async () => {
+    const store = new GoalStore(storePath);
+    await store.createGoal("session-1", "Goal");
+
+    let state = await store.getSession("session-1");
+    for (let i = 0; i < 55; i += 1) {
+      state = await store.appendSupplement("session-1", {
+        messageID: `m-${i}`,
+        source: "user",
+        text: `note ${i}`,
+      });
+    }
+
+    const supplements = state.goal?.supplements ?? [];
+    expect(supplements).toHaveLength(50);
+    // Oldest dropped, newest kept.
+    expect(supplements[0]?.text).toBe("note 5");
+    expect(supplements.at(-1)?.text).toBe("note 54");
+  });
+
   test("appendSupplement ignores inactive goals", async () => {
     const store = new GoalStore(storePath);
     await store.createGoal("session-1", "Goal");
@@ -233,9 +267,7 @@ describe("GoalStore", () => {
         pendingPermissionCount: 0,
         compactionNoticePending: false,
         compactionNoticeSkipNextClear: false,
-        ignoredInputTexts: [],
       },
-      seenUserMessageIDs: [],
     });
     const persisted = JSON.parse(await readFile(storePath, "utf8")) as {
       sessions: Record<string, unknown>;
