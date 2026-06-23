@@ -28,10 +28,10 @@ test("package metadata uses the non-conflicting GitHub release name", async () =
   expect(pkg.repository?.url).toBe("git+https://github.com/YanzuoLu/opencode-goal-mode.git");
 });
 
-test("package metadata declares release version 0.1.9", async () => {
+test("package metadata declares release version 0.1.11", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
-  expect(pkg.version).toBe("0.1.9");
+  expect(pkg.version).toBe("0.1.11");
 });
 
 test("package metadata points to emitted declaration file", async () => {
@@ -65,7 +65,9 @@ test("README documents pinned server and TUI plugin install entries", async () =
   expect(readme).toContain("opencode.json");
   expect(readme).toContain("tui.json");
   expect(readme).toContain("https://opencode.ai/tui.json");
-  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.9");
+  expect(readme).toContain("opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.11");
+  expect(readme).not.toContain("#v0.1.10");
+  expect(readme).not.toContain("#v0.1.9");
   expect(readme).not.toContain("#v0.1.8");
   expect(readme).not.toContain("#v0.1.7");
   expect(readme).not.toContain("#v0.1.6");
@@ -80,7 +82,7 @@ test("README documents pinned server and TUI plugin install entries", async () =
   expect(tuiBlock?.[1]).not.toContain('"$schema": "https://opencode.ai/config.json"');
 });
 
-test("README documents the TUI goal menu slash and inline goal commands", async () => {
+test("README documents inline goal commands and routes UI-only actions to the menu", async () => {
   const readme = await readFile("README.md", "utf8");
 
   expect(readme).toContain("`/goal-menu` opens the TUI goal menu/dialog.");
@@ -88,8 +90,9 @@ test("README documents the TUI goal menu slash and inline goal commands", async 
   expect(readme).toContain("/goal set");
   expect(readme).toContain("/goal replace");
   expect(readme).toContain("/goal resume");
-  expect(readme).toContain("/goal show");
-  expect(readme).toContain("/goal pause");
-  expect(readme).toContain("/goal drop");
-  expect(readme).toContain("This message is not sent to the model.");
+  // show/pause/drop are menu-only — they must not be documented as inline commands.
+  expect(readme).not.toContain("/goal show");
+  expect(readme).not.toContain("/goal pause");
+  expect(readme).not.toContain("/goal drop");
+  expect(readme).toContain("only handles");
 });

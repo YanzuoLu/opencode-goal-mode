@@ -4,11 +4,11 @@ Persistent goal mode for opencode.
 
 ## MVP Behavior
 
-- `/goal-menu` opens the TUI goal menu/dialog.
+- `/goal-menu` opens the TUI goal menu/dialog. Use it for `show`, `pause`, and `drop` — these are UI-only actions that run with no model turn.
 - `/goal <objective>` and `/goal set <objective>` create a goal inline and submit model-visible goal context.
 - `/goal replace <objective>` replaces a goal inline and submits model-visible goal context.
 - `/goal resume` resumes active/paused goals inline and submits model-visible goal context.
-- `/goal show`, `/goal pause`, and `/goal drop` write UI-only transcript status with `This message is not sent to the model.` and do not request a model reply.
+- The inline `/goal` command only handles `set`, `replace`, and `resume` (the actions that drive the model). opencode always starts a model turn for an inline command, so the context-free actions `show`/`pause`/`drop` live in `/goal-menu` instead; typing them inline just points you there.
 - Ordinary user messages while a goal is active are persisted as supplemental instructions.
 - Esc interrupt does not pause or drop the goal.
 - Auto continuation runs only after opencode reports the session idle.
@@ -34,7 +34,7 @@ Pin the server plugin to a release tag in `opencode.json` so later updates do no
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.9"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.11"
   ]
 }
 ```
@@ -45,12 +45,12 @@ Pin the TUI plugin in `tui.json` with the same release tag:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.9"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.11"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.9`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.11`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -59,7 +59,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.9",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.11",
       { "autoContinue": true }
     ]
   ]

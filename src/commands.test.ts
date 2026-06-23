@@ -148,98 +148,29 @@ describe("goal commands", () => {
     expect(output.noReply).toBeUndefined();
   });
 
-  test("show emits a UI-only active goal snapshot", async () => {
-    const s = await store();
-    await s.createGoal("s1", "Show goal");
-    const output: any = { parts: [] };
+  // show/pause/drop are UI-only actions that live in /goal-menu. opencode always
+  // starts a model turn for an inline command (no noReply on the command path) and
+  // pre-populates output.parts with the raw arg, so inline just drops that arg and
+  // points the user to the menu — without mutating goal state.
+  for (const subcommand of ["show", "pause", "drop"]) {
+    test(`${subcommand} is menu-only: redirects without mutating state or leaking the keyword`, async () => {
+      const s = await store();
+      await s.createGoal("s1", "Active goal");
+      // opencode pre-fills output.parts with the raw command argument.
+      const output: any = { parts: [{ type: "text", text: subcommand }] };
 
-    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "show" }, output, s);
+      await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: subcommand }, output, s);
 
-    expect(output.noReply).toBe(true);
-    expect(output.parts).toEqual([
-      expect.objectContaining({
-        type: "text",
-        ignored: true,
-        text: expect.stringContaining("Read-only snapshot"),
-      }),
-    ]);
-    expect(output.parts[0].text).toContain("Show goal");
-    expect(output.parts[0].text).toContain("<active_goal_context>");
-    expect(output.parts[0].synthetic).toBeUndefined();
-  });
-
-  test("show with no active goal emits UI-only no-active status", async () => {
-    const s = await store();
-    const output: any = { parts: [] };
-
-    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "show" }, output, s);
-
-    expect((await s.getSession("s1")).goal).toBeUndefined();
-    expect(output.noReply).toBe(true);
-    expect(output.parts).toEqual([
-      expect.objectContaining({
-        type: "text",
-        ignored: true,
-        text: expect.stringContaining("Action: no active goal"),
-      }),
-    ]);
-    expect(output.parts[0].text).toContain("UI-only status");
-    expect(output.parts[0].synthetic).toBeUndefined();
-  });
-
-  test("pause changes active to paused and emits UI-only status", async () => {
-    const s = await store();
-    await s.createGoal("s1", "Pause goal");
-    const output: any = { parts: [] };
-
-    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "pause" }, output, s);
-
-    expect((await s.getSession("s1")).goal).toMatchObject({ status: "paused" });
-    expect(output.noReply).toBe(true);
-    expect(output.parts).toEqual([
-      expect.objectContaining({ type: "text", ignored: true, text: expect.stringContaining("Action: paused") }),
-    ]);
-    expect(output.parts[0].synthetic).toBeUndefined();
-  });
-
-  test("drop changes active to dropped and emits UI-only status", async () => {
-    const s = await store();
-    await s.createGoal("s1", "Drop goal");
-    await s.setFlags("s1", { continuationInFlight: true });
-    const output: any = { parts: [] };
-
-    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "drop" }, output, s);
-
-    const state = await s.getSession("s1");
-    expect(state.goal).toMatchObject({ status: "dropped" });
-    expect(state.flags.continuationInFlight).toBe(false);
-    expect(state.flags.autoContinuationSuppressed).toBe(true);
-    expect(output.noReply).toBe(true);
-    expect(output.parts).toEqual([
-      expect.objectContaining({ type: "text", ignored: true, text: expect.stringContaining("Action: dropped") }),
-    ]);
-    expect(output.parts[0].synthetic).toBeUndefined();
-  });
-
-  test("drop changes paused to dropped and emits UI-only status", async () => {
-    const s = await store();
-    await s.createGoal("s1", "Paused drop goal");
-    await s.updateGoal("s1", (goal) => {
-      goal.status = "paused";
+      // Goal is untouched.
+      expect((await s.getSession("s1")).goal).toMatchObject({ status: "active", objective: "Active goal" });
+      // The pre-filled model-visible arg is dropped; only an ignored hint remains.
+      expect(output.parts).toEqual([
+        expect.objectContaining({ type: "text", ignored: true, text: expect.stringContaining("/goal-menu") }),
+      ]);
+      expect(output.parts[0].text).toContain(subcommand);
+      expect(output.noReply).toBe(true);
     });
-    const output: any = { parts: [] };
-
-    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "drop" }, output, s);
-
-    const state = await s.getSession("s1");
-    expect(state.goal).toMatchObject({ status: "dropped" });
-    expect(state.flags.continuationInFlight).toBe(false);
-    expect(state.flags.autoContinuationSuppressed).toBe(true);
-    expect(output.noReply).toBe(true);
-    expect(output.parts[0]).toMatchObject({ type: "text", ignored: true });
-    expect(output.parts[0].text).toContain("Action: dropped");
-    expect(output.parts[0].synthetic).toBeUndefined();
-  });
+  }
 
   test("blank set emits UI-only error and does not mutate state", async () => {
     const s = await store();
@@ -276,23 +207,35 @@ describe("goal commands", () => {
     ]);
   });
 
-  test("resume pause and drop with no active goal emit UI-only no-active status", async () => {
-    for (const subcommand of ["resume", "pause", "drop"]) {
+  test("resume with no active goal emits UI-only no-active status", async () => {
+    const s = await store();
+    const output: any = { parts: [{ type: "text", text: "resume" }] };
+
+    await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: "resume" }, output, s);
+
+    expect((await s.getSession("s1")).goal).toBeUndefined();
+    expect(output.noReply).toBe(true);
+    expect(output.parts).toEqual([
+      expect.objectContaining({
+        type: "text",
+        ignored: true,
+        text: expect.stringContaining("Action: no active goal"),
+      }),
+    ]);
+  });
+
+  test("pause and drop are menu-only even with no active goal", async () => {
+    for (const subcommand of ["pause", "drop"]) {
       const s = await store();
-      const output: any = { parts: [] };
+      const output: any = { parts: [{ type: "text", text: subcommand }] };
 
       await handleGoalCommand({ command: "goal", sessionID: "s1", arguments: subcommand }, output, s);
 
       expect((await s.getSession("s1")).goal).toBeUndefined();
       expect(output.noReply).toBe(true);
       expect(output.parts).toEqual([
-        expect.objectContaining({
-          type: "text",
-          ignored: true,
-          text: expect.stringContaining("Action: no active goal"),
-        }),
+        expect.objectContaining({ type: "text", ignored: true, text: expect.stringContaining("/goal-menu") }),
       ]);
-      expect(output.parts[0].synthetic).toBeUndefined();
     }
   });
 

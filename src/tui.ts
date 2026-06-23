@@ -77,10 +77,14 @@ let defaultSolidView: SolidView | undefined;
 async function loadSolidView(): Promise<SolidView> {
   if (defaultSolidView) return defaultSolidView;
   let solid: any;
-  if (typeof Bun !== "undefined") {
-    await importModule("@opentui/solid/runtime-plugin-support");
+  // opencode pre-registers the opentui runtime under the "opentui:runtime-module:"
+  // scheme, so import it directly. The previous code first imported
+  // "@opentui/solid/runtime-plugin-support", which does not resolve inside the
+  // plugin bundle and threw — leaving the dialog to fall back to the non-scrollable
+  // DialogAlert. Fall back to the bare specifier for non-opencode runtimes.
+  try {
     solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
-  } else {
+  } catch {
     solid = await importModule("@opentui/solid");
   }
   const { createElement, insert, setProp } = solid;
@@ -234,19 +238,33 @@ async function replaceGoal(api: GoalTuiApi, store: GoalStore, objective: string)
 function goalDetailView(api: GoalTuiApi, context: string, view?: SolidView): unknown {
   if (api.ui?.Dialog && view) {
     const theme = themeFor(api);
-    const content = elementNode(
-      "box",
-      { flexDirection: "column", paddingX: 1, paddingY: 1 },
-      [
-        textNode("Active goal", { fg: theme.text, bold: true }, view),
-        textNode(context, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view),
-      ],
+    // Put the (potentially large) context inside a scrollbox so it scrolls instead
+    // of running off the bottom; the title stays pinned above. The opencode Dialog
+    // pads its top by ~1/4 of the screen height and sizes its height to the content,
+    // so cap the container height to what remains (≈3/4 of the screen) for the
+    // scrollbar to engage. (This path only renders now that loadSolidView is fixed;
+    // previously the dialog always fell back to the non-scrollable DialogAlert.)
+    const rendererRows =
+      (api as any).renderer?.height ||
+      (typeof process !== "undefined" && process.stdout && process.stdout.rows) ||
+      40;
+    // The Dialog overlay pads its top by ~1/4 of the screen and opencode reserves
+    // chrome (tab bar + footer), so the usable area is well under the full height.
+    // Halving (minus a small margin) keeps the bounded scrollbox comfortably on-screen.
+    const boxHeight = Math.max(8, Math.floor(rendererRows / 2) - 2);
+    // A scrollbox as the direct Dialog child (with the title prepended into the text)
+    // is the most layout-safe shape: the Dialog centers/sizes it, and the numeric
+    // height bounds it so large context scrolls instead of overflowing.
+    const body = elementNode(
+      "scrollbox",
+      { height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } },
+      [textNode(`Active goal\n\n${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)],
       view,
     );
     return api.ui.Dialog({
       size: "xlarge",
       onClose: () => api.ui?.dialog?.clear?.(),
-      children: content,
+      children: body,
     });
   }
 
@@ -277,7 +295,10 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
   const rendered = renderActiveGoalContext(await store.getSession(sessionID));
   const context = rendered ? goalSnapshotLabel(rendered) : "No active goal";
 
-  const view = api.solidView ?? (api.ui?.Dialog && !api.ui?.DialogAlert ? await loadSolidView() : undefined);
+  // Prefer our own scrollable Solid dialog whenever the Dialog component exists.
+  // (Real opencode exposes both Dialog and DialogAlert, so this must not be gated
+  // on DialogAlert being absent.) Fall back to DialogAlert if the runtime can't load.
+  const view = api.solidView ?? (api.ui?.Dialog ? await loadSolidView().catch(() => undefined) : undefined);
   api.ui?.dialog?.replace?.(() => {
     if (api.ui?.DialogAlert && !view) return goalAlertView(api, context);
     return goalDetailView(api, context, view);

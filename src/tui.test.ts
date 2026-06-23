@@ -283,9 +283,12 @@ describe("goal TUI command", () => {
 
     expect(dialog.type).toBe("dialog");
     expect(dialog.props.size).toBe("xlarge");
-    expect(dialog.props.children.type).toBe("box");
-    expect(dialog.props.children.children[0].children).toContain("Active goal");
-    expect(dialog.props.children.children[1].children[0]).toContain("Render a real detail dialog");
+    // Context lives in a scrollbox (with the title prepended) so large content
+    // stays bounded and scrollable instead of running off the dialog.
+    expect(dialog.props.children.type).toBe("scrollbox");
+    const text = dialog.props.children.children[0].children[0];
+    expect(text).toContain("Active goal");
+    expect(text).toContain("Render a real detail dialog");
     expect(api.promptCalls).toHaveLength(0);
   });
 

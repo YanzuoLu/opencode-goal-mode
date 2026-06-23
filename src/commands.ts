@@ -1,18 +1,18 @@
 import type { Config } from "@opencode-ai/plugin";
 
-import { goalSnapshotLabel, goalStartPromptText, renderActiveGoalContext } from "./context";
+import { goalStartPromptText } from "./context";
 import type { GoalStore } from "./store";
 
-export type GoalSubcommand = "menu" | "set" | "replace" | "show" | "pause" | "resume" | "drop";
+export type GoalSubcommand = "menu" | "set" | "replace" | "resume" | "show" | "pause" | "drop";
 
-const subcommands = new Set<GoalSubcommand>([
-  "set",
-  "replace",
-  "show",
-  "pause",
-  "resume",
-  "drop",
-]);
+// Inline subcommands that drive the model (they legitimately start a turn).
+const inlineSubcommands = new Set<GoalSubcommand>(["set", "replace", "resume"]);
+
+// UI-only actions. opencode always issues a model turn for an inline command
+// (the command path has no noReply), so these would each fire a spurious,
+// context-free turn. They live only in /goal-menu, which uses turn-free client
+// actions. Reserved here so `/goal show` is not mistaken for a new objective.
+const menuOnlySubcommands = new Set<GoalSubcommand>(["show", "pause", "drop"]);
 
 type GoalCommandOutput = { parts: any[]; noReply?: boolean };
 
@@ -34,9 +34,9 @@ export function parseGoalArgs(args: string): { subcommand: GoalSubcommand; rest:
   if (!trimmed) return { subcommand: "menu", rest: "" };
 
   const [first = "", ...restParts] = trimmed.split(/\s+/);
-  const lower = first.toLowerCase();
-  if (subcommands.has(lower as GoalSubcommand)) {
-    return { subcommand: lower as GoalSubcommand, rest: restParts.join(" ").trim() };
+  const lower = first.toLowerCase() as GoalSubcommand;
+  if (inlineSubcommands.has(lower) || menuOnlySubcommands.has(lower)) {
+    return { subcommand: lower, rest: restParts.join(" ").trim() };
   }
 
   return { subcommand: "set", rest: trimmed };
@@ -47,6 +47,10 @@ function pushVisibleGoalPrompt(output: { parts: any[] }, text: string): void {
 }
 
 function setUiOnly(output: GoalCommandOutput, text: string): void {
+  // opencode pre-populates output.parts with the raw command arguments (e.g. the
+  // "show"/"pause"/"drop" keyword) before this hook runs. Those are model-visible
+  // and would trigger a model turn, so drop them and keep only the ignored UI part.
+  output.parts.length = 0;
   output.parts.push({ type: "text", text, ignored: true });
   output.noReply = true;
 }
@@ -55,8 +59,8 @@ function uiStatus(action: string): string {
   return `▣ Goal Mode | UI-only status\nThis message is not sent to the model.\n\nAction: ${action}`;
 }
 
-function uiSnapshot(context: string): string {
-  return goalSnapshotLabel(context);
+function uiMenuOnly(subcommand: string): string {
+  return `▣ Goal Mode | UI-only status\nThis message is not sent to the model.\n\n"${subcommand}" is available in /goal-menu. The inline /goal command only handles set, replace, and resume.`;
 }
 
 async function pushGoalStartPrompt(
@@ -128,45 +132,8 @@ export async function handleGoalCommand(
       return;
     }
 
-    if (parsed.subcommand === "show") {
-      const state = await store.getSession(input.sessionID);
-      const context = renderActiveGoalContext(state);
-      setUiOnly(output, context ? uiSnapshot(context) : uiStatus("no active goal"));
-      return;
-    }
-
-    if (parsed.subcommand === "pause") {
-      const state = await store.getSession(input.sessionID);
-      if (!state.goal || state.goal.status !== "active") {
-        setUiOnly(output, uiStatus("no active goal"));
-        return;
-      }
-
-      await store.updateGoal(input.sessionID, (goal) => {
-        goal.status = "paused";
-        goal.updatedAt = Date.now();
-      });
-      await store.setFlags(input.sessionID, { autoContinuationSuppressed: true });
-      setUiOnly(output, uiStatus("paused"));
-      return;
-    }
-
-    const state = await store.getSession(input.sessionID);
-    if (!state.goal || (state.goal.status !== "active" && state.goal.status !== "paused")) {
-      setUiOnly(output, uiStatus("no active goal"));
-      return;
-    }
-
-    await store.updateGoal(input.sessionID, (goal) => {
-      goal.status = "dropped";
-      goal.droppedAt = Date.now();
-      goal.updatedAt = Date.now();
-    });
-    await store.setFlags(input.sessionID, {
-      autoContinuationSuppressed: true,
-      continuationInFlight: false,
-    });
-    setUiOnly(output, uiStatus("dropped"));
+    // show / pause / drop: UI-only actions, available only in /goal-menu.
+    setUiOnly(output, uiMenuOnly(parsed.subcommand));
   } catch (error) {
     setUiOnly(output, uiStatus(error instanceof Error ? error.message : String(error)));
   }

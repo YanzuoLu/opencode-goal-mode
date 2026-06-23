@@ -98,14 +98,8 @@ ${rendered}`;
 }
 
 // src/commands.ts
-var subcommands = new Set([
-  "set",
-  "replace",
-  "show",
-  "pause",
-  "resume",
-  "drop"
-]);
+var inlineSubcommands = new Set(["set", "replace", "resume"]);
+var menuOnlySubcommands = new Set(["show", "pause", "drop"]);
 function registerGoalCommand(config) {
   config.command = Object.assign({}, config.command, {
     goal: {
@@ -120,7 +114,7 @@ function parseGoalArgs(args) {
     return { subcommand: "menu", rest: "" };
   const [first = "", ...restParts] = trimmed.split(/\s+/);
   const lower = first.toLowerCase();
-  if (subcommands.has(lower)) {
+  if (inlineSubcommands.has(lower) || menuOnlySubcommands.has(lower)) {
     return { subcommand: lower, rest: restParts.join(" ").trim() };
   }
   return { subcommand: "set", rest: trimmed };
@@ -129,6 +123,7 @@ function pushVisibleGoalPrompt(output, text) {
   output.parts.push({ type: "text", text });
 }
 function setUiOnly(output, text) {
+  output.parts.length = 0;
   output.parts.push({ type: "text", text, ignored: true });
   output.noReply = true;
 }
@@ -138,8 +133,11 @@ This message is not sent to the model.
 
 Action: ${action}`;
 }
-function uiSnapshot(context) {
-  return goalSnapshotLabel(context);
+function uiMenuOnly(subcommand) {
+  return `▣ Goal Mode | UI-only status
+This message is not sent to the model.
+
+"${subcommand}" is available in /goal-menu. The inline /goal command only handles set, replace, and resume.`;
 }
 async function pushGoalStartPrompt(sessionID, output, store, action) {
   const state = await store.getSession(sessionID);
@@ -175,12 +173,12 @@ async function handleGoalCommand(input, output, store) {
       return;
     }
     if (parsed.subcommand === "resume") {
-      const state2 = await store.getSession(input.sessionID);
-      if (!state2.goal || state2.goal.status !== "active" && state2.goal.status !== "paused") {
+      const state = await store.getSession(input.sessionID);
+      if (!state.goal || state.goal.status !== "active" && state.goal.status !== "paused") {
         setUiOnly(output, uiStatus("no active goal"));
         return;
       }
-      if (state2.goal.status === "paused") {
+      if (state.goal.status === "paused") {
         await store.updateGoal(input.sessionID, (goal) => {
           goal.status = "active";
           goal.updatedAt = Date.now();
@@ -190,41 +188,7 @@ async function handleGoalCommand(input, output, store) {
       await pushGoalStartPrompt(input.sessionID, output, store, "resume");
       return;
     }
-    if (parsed.subcommand === "show") {
-      const state2 = await store.getSession(input.sessionID);
-      const context = renderActiveGoalContext(state2);
-      setUiOnly(output, context ? uiSnapshot(context) : uiStatus("no active goal"));
-      return;
-    }
-    if (parsed.subcommand === "pause") {
-      const state2 = await store.getSession(input.sessionID);
-      if (!state2.goal || state2.goal.status !== "active") {
-        setUiOnly(output, uiStatus("no active goal"));
-        return;
-      }
-      await store.updateGoal(input.sessionID, (goal) => {
-        goal.status = "paused";
-        goal.updatedAt = Date.now();
-      });
-      await store.setFlags(input.sessionID, { autoContinuationSuppressed: true });
-      setUiOnly(output, uiStatus("paused"));
-      return;
-    }
-    const state = await store.getSession(input.sessionID);
-    if (!state.goal || state.goal.status !== "active" && state.goal.status !== "paused") {
-      setUiOnly(output, uiStatus("no active goal"));
-      return;
-    }
-    await store.updateGoal(input.sessionID, (goal) => {
-      goal.status = "dropped";
-      goal.droppedAt = Date.now();
-      goal.updatedAt = Date.now();
-    });
-    await store.setFlags(input.sessionID, {
-      autoContinuationSuppressed: true,
-      continuationInFlight: false
-    });
-    setUiOnly(output, uiStatus("dropped"));
+    setUiOnly(output, uiMenuOnly(parsed.subcommand));
   } catch (error) {
     setUiOnly(output, uiStatus(error instanceof Error ? error.message : String(error)));
   }

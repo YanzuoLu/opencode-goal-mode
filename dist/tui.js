@@ -14609,10 +14609,9 @@ async function loadSolidView() {
   if (defaultSolidView)
     return defaultSolidView;
   let solid;
-  if (typeof Bun !== "undefined") {
-    await importModule("@opentui/solid/runtime-plugin-support");
+  try {
     solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
-  } else {
+  } catch {
     solid = await importModule("@opentui/solid");
   }
   const { createElement, insert, setProp } = solid;
@@ -14743,14 +14742,15 @@ async function replaceGoal(api2, store, objective) {
 function goalDetailView(api2, context, view) {
   if (api2.ui?.Dialog && view) {
     const theme = themeFor(api2);
-    const content = elementNode("box", { flexDirection: "column", paddingX: 1, paddingY: 1 }, [
-      textNode("Active goal", { fg: theme.text, bold: true }, view),
-      textNode(context, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)
-    ], view);
+    const rendererRows = api2.renderer?.height || typeof process !== "undefined" && process.stdout && process.stdout.rows || 40;
+    const boxHeight = Math.max(8, Math.floor(rendererRows / 2) - 2);
+    const body = elementNode("scrollbox", { height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } }, [textNode(`Active goal
+
+${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)], view);
     return api2.ui.Dialog({
       size: "xlarge",
       onClose: () => api2.ui?.dialog?.clear?.(),
-      children: content
+      children: body
     });
   }
   return {
@@ -14776,7 +14776,9 @@ async function showGoal(api2, store) {
   }
   const rendered = renderActiveGoalContext(await store.getSession(sessionID));
   const context = rendered ? goalSnapshotLabel(rendered) : "No active goal";
-  const view = api2.solidView ?? (api2.ui?.Dialog && !api2.ui?.DialogAlert ? await loadSolidView() : undefined);
+  const view = api2.solidView ?? (api2.ui?.Dialog ? await loadSolidView().catch(() => {
+    return;
+  }) : undefined);
   api2.ui?.dialog?.replace?.(() => {
     if (api2.ui?.DialogAlert && !view)
       return goalAlertView(api2, context);

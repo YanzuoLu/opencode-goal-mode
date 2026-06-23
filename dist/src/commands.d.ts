@@ -1,6 +1,6 @@
 import type { Config } from "@opencode-ai/plugin";
 import type { GoalStore } from "./store";
-export type GoalSubcommand = "menu" | "set" | "replace" | "show" | "pause" | "resume" | "drop";
+export type GoalSubcommand = "menu" | "set" | "replace" | "resume" | "show" | "pause" | "drop";
 type GoalCommandOutput = {
     parts: any[];
     noReply?: boolean;
