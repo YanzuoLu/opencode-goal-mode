@@ -248,16 +248,23 @@ function goalDetailView(api: GoalTuiApi, context: string, view?: SolidView): unk
       (api as any).renderer?.height ||
       (typeof process !== "undefined" && process.stdout && process.stdout.rows) ||
       40;
-    // The Dialog overlay pads its top by ~1/4 of the screen and opencode reserves
-    // chrome (tab bar + footer), so the usable area is well under the full height.
-    // Halving (minus a small margin) keeps the bounded scrollbox comfortably on-screen.
-    const boxHeight = Math.max(8, Math.floor(rendererRows / 2) - 2);
-    // A scrollbox as the direct Dialog child (with the title prepended into the text)
-    // is the most layout-safe shape: the Dialog centers/sizes it, and the numeric
-    // height bounds it so large context scrolls instead of overflowing.
+    const rendererCols =
+      (api as any).renderer?.width ||
+      (typeof process !== "undefined" && process.stdout && process.stdout.columns) ||
+      100;
+    // The Dialog centers its child but auto-sizes width to the child's content. With
+    // no explicit width the longest (label) line decides it, so the text never wraps
+    // and the box overflows to the right; an explicit width makes the text wrap inside
+    // and the box center. Keep it within the dialog's own width and cap the height so
+    // the bounded scrollbox stays on-screen (the overlay pads its top by ~1/4 screen
+    // and opencode reserves footer chrome).
+    const boxWidth = Math.max(44, Math.min(rendererCols - 16, 60));
+    // The dialog starts ~3/5 of the way down (overlay top padding + opencode chrome),
+    // so only ~2/5 of the screen is usable below it; size the scrollbox to fit there.
+    const boxHeight = Math.max(8, Math.floor(rendererRows * 0.4));
     const body = elementNode(
       "scrollbox",
-      { height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } },
+      { width: boxWidth, height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } },
       [textNode(`Active goal\n\n${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)],
       view,
     );

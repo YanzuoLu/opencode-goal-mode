@@ -14743,8 +14743,10 @@ function goalDetailView(api2, context, view) {
   if (api2.ui?.Dialog && view) {
     const theme = themeFor(api2);
     const rendererRows = api2.renderer?.height || typeof process !== "undefined" && process.stdout && process.stdout.rows || 40;
-    const boxHeight = Math.max(8, Math.floor(rendererRows / 2) - 2);
-    const body = elementNode("scrollbox", { height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } }, [textNode(`Active goal
+    const rendererCols = api2.renderer?.width || typeof process !== "undefined" && process.stdout && process.stdout.columns || 100;
+    const boxWidth = Math.max(44, Math.min(rendererCols - 16, 60));
+    const boxHeight = Math.max(8, Math.floor(rendererRows * 0.4));
+    const body = elementNode("scrollbox", { width: boxWidth, height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } }, [textNode(`Active goal
 
 ${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)], view);
     return api2.ui.Dialog({
