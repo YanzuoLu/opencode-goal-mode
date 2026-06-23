@@ -11,12 +11,6 @@ type GoalMenuAction = GoalStartAction | "show" | "pause" | "drop";
 
 const GOAL_MENU_ACTIONS: readonly GoalMenuAction[] = ["show", "set", "replace", "pause", "resume", "drop"];
 
-type SolidView = {
-  createElement: (type: string) => any;
-  insert: (element: any, child: unknown) => void;
-  setProp: (element: any, key: string, value: unknown) => void;
-};
-
 type GoalTuiApi = {
   route?: { current?: { params?: Record<string, unknown> } };
   state?: {
@@ -32,13 +26,9 @@ type GoalTuiApi = {
       replace?: (render: () => unknown, onClose?: () => void) => void;
       clear?: () => void;
     };
-    Dialog?: (props: any) => unknown;
     DialogSelect?: (props: any) => unknown;
     DialogPrompt?: (props: any) => unknown;
-    DialogAlert?: (props: any) => unknown;
   };
-  solidView?: SolidView;
-  theme?: { current?: Record<string, unknown> } | Record<string, unknown>;
   keymap?: { registerLayer?: (layer: any) => () => void };
   command?: { register?: (callback: () => any[]) => () => void };
   lifecycle?: { onDispose?: (dispose: () => void) => unknown };
@@ -66,52 +56,6 @@ function toast(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Goal command failed";
-}
-
-async function importModule(specifier: string): Promise<any> {
-  return import(specifier);
-}
-
-let defaultSolidView: SolidView | undefined;
-
-async function loadSolidView(): Promise<SolidView> {
-  if (defaultSolidView) return defaultSolidView;
-  let solid: any;
-  // opencode pre-registers the opentui runtime under the "opentui:runtime-module:"
-  // scheme, so import it directly. The previous code first imported
-  // "@opentui/solid/runtime-plugin-support", which does not resolve inside the
-  // plugin bundle and threw — leaving the dialog to fall back to the non-scrollable
-  // DialogAlert. Fall back to the bare specifier for non-opencode runtimes.
-  try {
-    solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
-  } catch {
-    solid = await importModule("@opentui/solid");
-  }
-  const { createElement, insert, setProp } = solid;
-  defaultSolidView = { createElement, insert, setProp };
-  return defaultSolidView;
-}
-
-function elementNode(type: string, props: Record<string, unknown>, children: unknown[], view: SolidView): unknown {
-  const element = view.createElement(type);
-  for (const [key, value] of Object.entries(props)) {
-    if (value !== undefined) view.setProp(element, key, value);
-  }
-  for (const child of children) {
-    if (child !== null && child !== undefined && child !== false) view.insert(element, child);
-  }
-  return element;
-}
-
-function textNode(value: string, props: Record<string, unknown>, view: SolidView): unknown {
-  return elementNode("text", props, [value], view);
-}
-
-function themeFor(api: GoalTuiApi): Record<string, unknown> {
-  const theme = (api.theme && "current" in api.theme ? api.theme.current : api.theme) as
-    | Record<string, unknown>
-    | undefined;
-  return theme ?? {};
 }
 
 function sessionAgent(session: any): string | undefined {
@@ -235,81 +179,36 @@ async function replaceGoal(api: GoalTuiApi, store: GoalStore, objective: string)
   }
 }
 
-function goalDetailView(api: GoalTuiApi, context: string, view?: SolidView): unknown {
-  if (api.ui?.Dialog && view) {
-    const theme = themeFor(api);
-    // Put the (potentially large) context inside a scrollbox so it scrolls instead
-    // of running off the bottom; the title stays pinned above. The opencode Dialog
-    // pads its top by ~1/4 of the screen height and sizes its height to the content,
-    // so cap the container height to what remains (≈3/4 of the screen) for the
-    // scrollbar to engage. (This path only renders now that loadSolidView is fixed;
-    // previously the dialog always fell back to the non-scrollable DialogAlert.)
-    const rendererRows =
-      (api as any).renderer?.height ||
-      (typeof process !== "undefined" && process.stdout && process.stdout.rows) ||
-      40;
-    const rendererCols =
-      (api as any).renderer?.width ||
-      (typeof process !== "undefined" && process.stdout && process.stdout.columns) ||
-      100;
-    // The Dialog centers its child but auto-sizes width to the child's content. With
-    // no explicit width the longest (label) line decides it, so the text never wraps
-    // and the box overflows to the right; an explicit width makes the text wrap inside
-    // and the box center. Keep it within the dialog's own width and cap the height so
-    // the bounded scrollbox stays on-screen (the overlay pads its top by ~1/4 screen
-    // and opencode reserves footer chrome).
-    const boxWidth = Math.max(44, Math.min(rendererCols - 16, 60));
-    // The dialog starts ~3/5 of the way down (overlay top padding + opencode chrome),
-    // so only ~2/5 of the screen is usable below it; size the scrollbox to fit there.
-    const boxHeight = Math.max(8, Math.floor(rendererRows * 0.4));
-    const body = elementNode(
-      "scrollbox",
-      { width: boxWidth, height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } },
-      [textNode(`Active goal\n\n${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)],
-      view,
-    );
-    return api.ui.Dialog({
-      size: "xlarge",
-      onClose: () => api.ui?.dialog?.clear?.(),
-      children: body,
-    });
-  }
-
-  return {
-    type: "goal-detail",
-    props: {
-      title: "Active goal",
-      context,
-      onClose: () => api.ui?.dialog?.clear?.(),
-    },
-  };
-}
-
-function goalAlertView(api: GoalTuiApi, context: string): unknown {
-  return api.ui?.DialogAlert?.({
-    title: "Active goal",
-    message: context,
-  });
-}
-
 async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
   const sessionID = currentSessionID(api);
   if (!sessionID) {
     toast(api, "error", "No active session");
     return;
   }
+  if (!hasPromptAsync(api)) return;
+  api.ui?.dialog?.clear?.();
 
   const rendered = renderActiveGoalContext(await store.getSession(sessionID));
-  const context = rendered ? goalSnapshotLabel(rendered) : "No active goal";
+  const text = rendered ? goalSnapshotLabel(rendered) : "No active goal.";
 
-  // Prefer our own scrollable Solid dialog whenever the Dialog component exists.
-  // (Real opencode exposes both Dialog and DialogAlert, so this must not be gated
-  // on DialogAlert being absent.) Fall back to DialogAlert if the runtime can't load.
-  const view = api.solidView ?? (api.ui?.Dialog ? await loadSolidView().catch(() => undefined) : undefined);
-  api.ui?.dialog?.replace?.(() => {
-    if (api.ui?.DialogAlert && !view) return goalAlertView(api, context);
-    return goalDetailView(api, context, view);
-  });
+  // Echo the snapshot into the transcript instead of a dialog: an `ignored` part is
+  // shown in the transcript but excluded from the model context, and `noReply`
+  // suppresses the model turn. This keeps the snapshot full-width and naturally
+  // scrollable as chat history, and sidesteps the opentui dialog layout entirely.
+  const session = api.state?.session?.get?.(sessionID);
+  const model = sessionModel(session);
+  const agent = sessionAgent(session);
+  const variant = session?.model?.variant;
+  const input: any = {
+    sessionID,
+    noReply: true,
+    parts: [{ type: "text", text, ignored: true }],
+  };
+  if (model) input.model = model;
+  if (agent) input.agent = agent;
+  if (variant !== undefined) input.variant = variant;
+
+  await api.client?.session?.promptAsync?.(input);
 }
 
 async function pauseGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {

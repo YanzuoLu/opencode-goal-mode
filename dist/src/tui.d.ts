@@ -1,9 +1,4 @@
 export { goalStartPromptText } from "./context";
-type SolidView = {
-    createElement: (type: string) => any;
-    insert: (element: any, child: unknown) => void;
-    setProp: (element: any, key: string, value: unknown) => void;
-};
 type GoalTuiApi = {
     route?: {
         current?: {
@@ -31,15 +26,9 @@ type GoalTuiApi = {
             replace?: (render: () => unknown, onClose?: () => void) => void;
             clear?: () => void;
         };
-        Dialog?: (props: any) => unknown;
         DialogSelect?: (props: any) => unknown;
         DialogPrompt?: (props: any) => unknown;
-        DialogAlert?: (props: any) => unknown;
     };
-    solidView?: SolidView;
-    theme?: {
-        current?: Record<string, unknown>;
-    } | Record<string, unknown>;
     keymap?: {
         registerLayer?: (layer: any) => () => void;
     };

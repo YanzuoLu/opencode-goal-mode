@@ -259,74 +259,41 @@ describe("goal TUI command", () => {
     expect(typeof command.onSelect).toBe("function");
   });
 
-  test("show opens a dialog with rendered context and does not prompt", async () => {
+  test("show echoes the snapshot into the transcript as an ignored, no-reply message", async () => {
     const { api, store } = await setup();
     await store.createGoal(SESSION_ID, "Ship the TUI command");
 
-    const dialog = await selectGoalAction(api, "show");
+    await selectGoalAction(api, "show");
 
-    expect(dialog.type).toBe("goal-detail");
-    expect(dialog.props.title).toBe("Active goal");
-    // Labelled as the read-only, model-visible context so the user can tell what
-    // the model actually sees.
-    expect(dialog.props.context).toContain("Read-only snapshot");
-    expect(dialog.props.context).toContain("<active_goal_context>");
-    expect(dialog.props.context).toContain("Ship the TUI command");
-    expect(api.promptCalls).toHaveLength(0);
+    // Instead of a dialog, the snapshot is echoed into the transcript: an ignored
+    // part (shown in the transcript but excluded from the model context) sent with
+    // noReply (no model turn).
+    expect(api.promptCalls).toHaveLength(1);
+    const call = api.promptCalls[0];
+    expect(call.sessionID).toBe(SESSION_ID);
+    expect(call.noReply).toBe(true);
+    expect(call.parts).toHaveLength(1);
+    const part = call.parts[0];
+    expect(part).toMatchObject({ type: "text", ignored: true });
+    expect(part.synthetic).toBeUndefined();
+    expect(part.text).toContain("Read-only snapshot");
+    expect(part.text).toContain("<active_goal_context>");
+    expect(part.text).toContain("Ship the TUI command");
+    // The menu is closed when the snapshot is echoed.
+    expect(api.dialogs).toContainEqual({ cleared: true });
   });
 
-  test("show uses the real TUI Dialog component path when available", async () => {
-    const { api, store } = await setup({ dialogComponent: true });
-    await store.createGoal(SESSION_ID, "Render a real detail dialog");
-
-    const dialog = await selectGoalAction(api, "show");
-
-    expect(dialog.type).toBe("dialog");
-    expect(dialog.props.size).toBe("xlarge");
-    // Context lives in a scrollbox (with the title prepended) so large content
-    // stays bounded and scrollable instead of running off the dialog.
-    expect(dialog.props.children.type).toBe("scrollbox");
-    const text = dialog.props.children.children[0].children[0];
-    expect(text).toContain("Active goal");
-    expect(text).toContain("Render a real detail dialog");
-    expect(api.promptCalls).toHaveLength(0);
-  });
-
-  test("show with no active goal opens a dialog and does not toast or prompt", async () => {
+  test("show with no active goal echoes a UI-only no-goal notice", async () => {
     const { api } = await setup();
-
-    const dialog = await selectGoalAction(api, "show");
-
-    expect(dialog.type).toBe("goal-detail");
-    expect(dialog.props.title).toBe("Active goal");
-    expect(dialog.props.context).toBe("No active goal");
-    expect(api.toasts).toHaveLength(0);
-    expect(api.promptCalls).toHaveLength(0);
-  });
-
-  test("show uses built-in alert when Solid runtime support is unavailable", async () => {
-    const { api, store } = await setup({ dialogComponent: true, solidView: false });
-    await store.createGoal(SESSION_ID, "Show without Solid runtime imports");
-
-    const dialog = await selectGoalAction(api, "show");
-
-    expect(dialog.type).toBe("alert");
-    expect(dialog.props.title).toBe("Active goal");
-    expect(dialog.props.message).toContain("Show without Solid runtime imports");
-    expect(api.toasts).toHaveLength(0);
-    expect(api.promptCalls).toHaveLength(0);
-  });
-
-  test("show selection replaces the menu without clearing the dialog stack first", async () => {
-    const { api, store } = await setup();
-    await store.createGoal(SESSION_ID, "Replace menu with detail");
 
     await selectGoalAction(api, "show");
 
-    const firstClear = api.dialogs.findIndex((item: any) => item.cleared);
-    const firstDetail = api.dialogs.findIndex((item: any) => item.rendered?.type === "goal-detail");
-    expect(firstDetail).toBeGreaterThanOrEqual(0);
-    expect(firstClear === -1 || firstClear > firstDetail).toBe(true);
+    expect(api.promptCalls).toHaveLength(1);
+    const call = api.promptCalls[0];
+    expect(call.noReply).toBe(true);
+    expect(call.parts[0]).toMatchObject({ type: "text", ignored: true });
+    expect(call.parts[0].text).toContain("No active goal");
+    expect(api.toasts).toHaveLength(0);
   });
 
   test("DialogSelect top-level onSelect dispatches selected goal action", async () => {

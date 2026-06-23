@@ -14601,42 +14601,6 @@ function toast(api2, variant, message) {
 function errorMessage(error51) {
   return error51 instanceof Error ? error51.message : "Goal command failed";
 }
-async function importModule(specifier) {
-  return import(specifier);
-}
-var defaultSolidView;
-async function loadSolidView() {
-  if (defaultSolidView)
-    return defaultSolidView;
-  let solid;
-  try {
-    solid = await importModule("opentui:runtime-module:%40opentui%2Fsolid");
-  } catch {
-    solid = await importModule("@opentui/solid");
-  }
-  const { createElement, insert, setProp } = solid;
-  defaultSolidView = { createElement, insert, setProp };
-  return defaultSolidView;
-}
-function elementNode(type, props, children, view) {
-  const element = view.createElement(type);
-  for (const [key, value] of Object.entries(props)) {
-    if (value !== undefined)
-      view.setProp(element, key, value);
-  }
-  for (const child of children) {
-    if (child !== null && child !== undefined && child !== false)
-      view.insert(element, child);
-  }
-  return element;
-}
-function textNode(value, props, view) {
-  return elementNode("text", props, [value], view);
-}
-function themeFor(api2) {
-  const theme = api2.theme && "current" in api2.theme ? api2.theme.current : api2.theme;
-  return theme ?? {};
-}
 function sessionAgent(session) {
   if (typeof session?.agent === "string")
     return session.agent;
@@ -14739,53 +14703,33 @@ async function replaceGoal(api2, store, objective) {
     toast(api2, "error", errorMessage(error51));
   }
 }
-function goalDetailView(api2, context, view) {
-  if (api2.ui?.Dialog && view) {
-    const theme = themeFor(api2);
-    const rendererRows = api2.renderer?.height || typeof process !== "undefined" && process.stdout && process.stdout.rows || 40;
-    const rendererCols = api2.renderer?.width || typeof process !== "undefined" && process.stdout && process.stdout.columns || 100;
-    const boxWidth = Math.max(44, Math.min(rendererCols - 16, 60));
-    const boxHeight = Math.max(8, Math.floor(rendererRows * 0.4));
-    const body = elementNode("scrollbox", { width: boxWidth, height: boxHeight, paddingX: 1, paddingY: 1, scrollbarOptions: { visible: true } }, [textNode(`Active goal
-
-${context}`, { fg: theme.textMuted ?? theme.text, wrap: "wrap" }, view)], view);
-    return api2.ui.Dialog({
-      size: "xlarge",
-      onClose: () => api2.ui?.dialog?.clear?.(),
-      children: body
-    });
-  }
-  return {
-    type: "goal-detail",
-    props: {
-      title: "Active goal",
-      context,
-      onClose: () => api2.ui?.dialog?.clear?.()
-    }
-  };
-}
-function goalAlertView(api2, context) {
-  return api2.ui?.DialogAlert?.({
-    title: "Active goal",
-    message: context
-  });
-}
 async function showGoal(api2, store) {
   const sessionID = currentSessionID(api2);
   if (!sessionID) {
     toast(api2, "error", "No active session");
     return;
   }
-  const rendered = renderActiveGoalContext(await store.getSession(sessionID));
-  const context = rendered ? goalSnapshotLabel(rendered) : "No active goal";
-  const view = api2.solidView ?? (api2.ui?.Dialog ? await loadSolidView().catch(() => {
+  if (!hasPromptAsync(api2))
     return;
-  }) : undefined);
-  api2.ui?.dialog?.replace?.(() => {
-    if (api2.ui?.DialogAlert && !view)
-      return goalAlertView(api2, context);
-    return goalDetailView(api2, context, view);
-  });
+  api2.ui?.dialog?.clear?.();
+  const rendered = renderActiveGoalContext(await store.getSession(sessionID));
+  const text = rendered ? goalSnapshotLabel(rendered) : "No active goal.";
+  const session = api2.state?.session?.get?.(sessionID);
+  const model = sessionModel(session);
+  const agent = sessionAgent(session);
+  const variant = session?.model?.variant;
+  const input = {
+    sessionID,
+    noReply: true,
+    parts: [{ type: "text", text, ignored: true }]
+  };
+  if (model)
+    input.model = model;
+  if (agent)
+    input.agent = agent;
+  if (variant !== undefined)
+    input.variant = variant;
+  await api2.client?.session?.promptAsync?.(input);
 }
 async function pauseGoal(api2, store) {
   const info = requireSessionInfo(api2);
