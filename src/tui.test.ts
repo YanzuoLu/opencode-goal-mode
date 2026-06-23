@@ -42,6 +42,7 @@ function createFakeApi(options: {
   keymap?: boolean;
   legacyCommand?: boolean;
   dialogComponent?: boolean;
+  solidView?: boolean;
 } = {}) {
   const promptCalls: any[] = [];
   const toasts: any[] = [];
@@ -93,7 +94,10 @@ function createFakeApi(options: {
     get unregisterCount() {
       return unregisterCount;
     },
-    solidView: {
+  };
+
+  if (options.solidView !== false) {
+    api.solidView = {
       createElement: (type: string) => ({ type, props: {}, children: [] as any[] }),
       setProp: (element: any, key: string, value: unknown) => {
         element.props[key] = value;
@@ -101,8 +105,8 @@ function createFakeApi(options: {
       insert: (element: any, child: unknown) => {
         element.children.push(child);
       },
-    },
-  };
+    };
+  }
 
   if (options.dialogComponent) {
     api.ui.Dialog = (props: any) => ({ type: "dialog", props });
@@ -290,6 +294,31 @@ describe("goal TUI command", () => {
     expect(dialog.props.context).toBe("No active goal");
     expect(api.toasts).toHaveLength(0);
     expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("show uses built-in alert when Solid runtime support is unavailable", async () => {
+    const { api, store } = await setup({ dialogComponent: true, solidView: false });
+    await store.createGoal(SESSION_ID, "Show without Solid runtime imports");
+
+    const dialog = await selectGoalAction(api, "show");
+
+    expect(dialog.type).toBe("alert");
+    expect(dialog.props.title).toBe("Active goal");
+    expect(dialog.props.message).toContain("Show without Solid runtime imports");
+    expect(api.toasts).toHaveLength(0);
+    expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("show selection replaces the menu without clearing the dialog stack first", async () => {
+    const { api, store } = await setup();
+    await store.createGoal(SESSION_ID, "Replace menu with detail");
+
+    await selectGoalAction(api, "show");
+
+    const firstClear = api.dialogs.findIndex((item: any) => item.cleared);
+    const firstDetail = api.dialogs.findIndex((item: any) => item.rendered?.type === "goal-detail");
+    expect(firstDetail).toBeGreaterThanOrEqual(0);
+    expect(firstClear === -1 || firstClear > firstDetail).toBe(true);
   });
 
   test("DialogSelect top-level onSelect dispatches selected goal action", async () => {

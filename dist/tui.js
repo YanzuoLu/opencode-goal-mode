@@ -14753,6 +14753,12 @@ function goalDetailView(api2, context, view) {
     }
   };
 }
+function goalAlertView(api2, context) {
+  return api2.ui?.DialogAlert?.({
+    title: "Active goal",
+    message: context
+  });
+}
 async function showGoal(api2, store) {
   const sessionID = currentSessionID(api2);
   if (!sessionID) {
@@ -14760,8 +14766,12 @@ async function showGoal(api2, store) {
     return;
   }
   const context = renderActiveGoalContext(await store.getSession(sessionID)) ?? "No active goal";
-  const view = api2.solidView ?? (api2.ui?.Dialog ? await loadSolidView() : undefined);
-  api2.ui?.dialog?.replace?.(() => goalDetailView(api2, context, view));
+  const view = api2.solidView ?? (api2.ui?.Dialog && !api2.ui?.DialogAlert ? await loadSolidView() : undefined);
+  api2.ui?.dialog?.replace?.(() => {
+    if (api2.ui?.DialogAlert && !view)
+      return goalAlertView(api2, context);
+    return goalDetailView(api2, context, view);
+  });
 }
 async function pauseGoal(api2, store) {
   const info = requireSessionInfo(api2);
@@ -14869,7 +14879,9 @@ function goalMenuProps(api2, store) {
     onSelect: (option) => {
       if (!isGoalMenuAction(option.value))
         return;
-      api2.ui?.dialog?.clear?.();
+      if (option.value === "pause" || option.value === "resume" || option.value === "drop") {
+        api2.ui?.dialog?.clear?.();
+      }
       return runAction(api2, store, option.value);
     }
   };

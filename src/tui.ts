@@ -262,6 +262,13 @@ function goalDetailView(api: GoalTuiApi, context: string, view?: SolidView): unk
   };
 }
 
+function goalAlertView(api: GoalTuiApi, context: string): unknown {
+  return api.ui?.DialogAlert?.({
+    title: "Active goal",
+    message: context,
+  });
+}
+
 async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
   const sessionID = currentSessionID(api);
   if (!sessionID) {
@@ -271,8 +278,11 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
 
   const context = renderActiveGoalContext(await store.getSession(sessionID)) ?? "No active goal";
 
-  const view = api.solidView ?? (api.ui?.Dialog ? await loadSolidView() : undefined);
-  api.ui?.dialog?.replace?.(() => goalDetailView(api, context, view));
+  const view = api.solidView ?? (api.ui?.Dialog && !api.ui?.DialogAlert ? await loadSolidView() : undefined);
+  api.ui?.dialog?.replace?.(() => {
+    if (api.ui?.DialogAlert && !view) return goalAlertView(api, context);
+    return goalDetailView(api, context, view);
+  });
 }
 
 async function pauseGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
@@ -387,7 +397,9 @@ function goalMenuProps(api: GoalTuiApi, store: GoalStore) {
     options: menuOptions(),
     onSelect: (option: { value?: unknown }) => {
       if (!isGoalMenuAction(option.value)) return;
-      api.ui?.dialog?.clear?.();
+      if (option.value === "pause" || option.value === "resume" || option.value === "drop") {
+        api.ui?.dialog?.clear?.();
+      }
       return runAction(api, store, option.value);
     },
   };
