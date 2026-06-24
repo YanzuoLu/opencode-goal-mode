@@ -72,16 +72,16 @@ function sessionModel(session: any): SessionInfo["model"] | undefined {
   return { modelID, providerID };
 }
 
-function requireSessionInfo(api: GoalTuiApi): SessionInfo | undefined {
+// Resolve the session + model needed to fire a kickoff. Deliberately does NOT
+// reject a busy session: opencode queues prompts sent during an active turn, and
+// the goal-state mutation is a plain file write that never needs the session to
+// be idle. Gating the whole menu action on idle (the old behavior) silently
+// dropped replace/set/resume whenever a goal kept the session busy via
+// auto-continuation — the "menu replace does nothing" bug.
+function resolveSessionInfo(api: GoalTuiApi): SessionInfo | undefined {
   const sessionID = currentSessionID(api);
   if (!sessionID) {
     toast(api, "error", "No active session");
-    return undefined;
-  }
-
-  const status = api.state?.session?.status?.(sessionID);
-  if (status?.type === "busy" || status?.type === "retry") {
-    toast(api, "info", "Session is busy; try again when idle");
     return undefined;
   }
 
@@ -148,7 +148,7 @@ async function setGoal(api: GoalTuiApi, store: GoalStore, objective: string): Pr
     return;
   }
 
-  const info = requireSessionInfo(api);
+  const info = resolveSessionInfo(api);
   if (!info || !hasPromptAsync(api)) return;
 
   try {
@@ -167,7 +167,7 @@ async function replaceGoal(api: GoalTuiApi, store: GoalStore, objective: string)
     return;
   }
 
-  const info = requireSessionInfo(api);
+  const info = resolveSessionInfo(api);
   if (!info || !hasPromptAsync(api)) return;
 
   try {
@@ -212,10 +212,13 @@ async function showGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
 }
 
 async function pauseGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
-  const info = requireSessionInfo(api);
-  if (!info) return;
+  const sessionID = currentSessionID(api);
+  if (!sessionID) {
+    toast(api, "error", "No active session");
+    return;
+  }
 
-  const state = await store.getSession(info.sessionID);
+  const state = await store.getSession(sessionID);
   if (state.goal?.status !== "active") {
     toast(api, "info", "No active goal");
     return;
@@ -227,10 +230,13 @@ async function pauseGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
 }
 
 async function dropGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
-  const info = requireSessionInfo(api);
-  if (!info) return;
+  const sessionID = currentSessionID(api);
+  if (!sessionID) {
+    toast(api, "error", "No active session");
+    return;
+  }
 
-  const state = await store.getSession(info.sessionID);
+  const state = await store.getSession(sessionID);
   if (state.goal?.status !== "active" && state.goal?.status !== "paused") {
     toast(api, "info", "No active goal");
     return;
@@ -252,7 +258,7 @@ async function dropGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
 }
 
 async function resumeGoal(api: GoalTuiApi, store: GoalStore): Promise<void> {
-  const info = requireSessionInfo(api);
+  const info = resolveSessionInfo(api);
   if (!info) return;
 
   const state = await store.getSession(info.sessionID);

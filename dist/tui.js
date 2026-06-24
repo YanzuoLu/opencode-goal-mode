@@ -14617,15 +14617,10 @@ function sessionModel(session) {
     return;
   return { modelID, providerID };
 }
-function requireSessionInfo(api2) {
+function resolveSessionInfo(api2) {
   const sessionID = currentSessionID(api2);
   if (!sessionID) {
     toast(api2, "error", "No active session");
-    return;
-  }
-  const status = api2.state?.session?.status?.(sessionID);
-  if (status?.type === "busy" || status?.type === "retry") {
-    toast(api2, "info", "Session is busy; try again when idle");
     return;
   }
   const session = api2.state?.session?.get?.(sessionID);
@@ -14675,7 +14670,7 @@ async function setGoal(api2, store, objective) {
     toast(api2, "error", "Goal objective cannot be blank");
     return;
   }
-  const info = requireSessionInfo(api2);
+  const info = resolveSessionInfo(api2);
   if (!info || !hasPromptAsync(api2))
     return;
   try {
@@ -14692,7 +14687,7 @@ async function replaceGoal(api2, store, objective) {
     toast(api2, "error", "Goal objective cannot be blank");
     return;
   }
-  const info = requireSessionInfo(api2);
+  const info = resolveSessionInfo(api2);
   if (!info || !hasPromptAsync(api2))
     return;
   try {
@@ -14732,10 +14727,12 @@ async function showGoal(api2, store) {
   await api2.client?.session?.promptAsync?.(input);
 }
 async function pauseGoal(api2, store) {
-  const info = requireSessionInfo(api2);
-  if (!info)
+  const sessionID = currentSessionID(api2);
+  if (!sessionID) {
+    toast(api2, "error", "No active session");
     return;
-  const state = await store.getSession(info.sessionID);
+  }
+  const state = await store.getSession(sessionID);
   if (state.goal?.status !== "active") {
     toast(api2, "info", "No active goal");
     return;
@@ -14745,10 +14742,12 @@ async function pauseGoal(api2, store) {
   toast(api2, "success", "Goal paused");
 }
 async function dropGoal(api2, store) {
-  const info = requireSessionInfo(api2);
-  if (!info)
+  const sessionID = currentSessionID(api2);
+  if (!sessionID) {
+    toast(api2, "error", "No active session");
     return;
-  const state = await store.getSession(info.sessionID);
+  }
+  const state = await store.getSession(sessionID);
   if (state.goal?.status !== "active" && state.goal?.status !== "paused") {
     toast(api2, "info", "No active goal");
     return;
@@ -14768,7 +14767,7 @@ async function dropGoal(api2, store) {
   toast(api2, "success", "Goal dropped");
 }
 async function resumeGoal(api2, store) {
-  const info = requireSessionInfo(api2);
+  const info = resolveSessionInfo(api2);
   if (!info)
     return;
   const state = await store.getSession(info.sessionID);

@@ -496,14 +496,83 @@ describe("goal TUI command", () => {
     expect(api.promptCalls).toHaveLength(0);
   });
 
-  test("set refuses busy sessions before mutating state", async () => {
+  // Menu actions must work while the session is busy. opencode queues prompts
+  // sent during an active turn, so the kickoff runs after the current turn; the
+  // state mutation is just a file write and never needs the session to be idle.
+  // The old busy guard silently dropped the whole action (the "replace does not
+  // work" bug: with autoContinue on, an active goal keeps the session busy, so
+  // every menu replace/pause/drop was rejected).
+  test("replace proceeds while the session is busy and queues the kickoff", async () => {
+    const { api, store } = await setup({ status: { type: "busy" } });
+    await store.createGoal(SESSION_ID, "Old objective");
+
+    const dialog = await selectGoalAction(api, "replace");
+    expect(dialog.type).toBe("prompt");
+    await dialog.props.onConfirm("Replace while busy");
+
+    const state = await store.getSession(SESSION_ID);
+    expect(state.goal).toMatchObject({ objective: "Replace while busy", status: "active" });
+    expect(api.toasts.at(-1)).toMatchObject({ message: "Goal replaced" });
+    expect(api.toasts.every((t: any) => t.variant !== "error" && t.variant !== "info")).toBe(true);
+    expect(api.promptCalls).toHaveLength(1);
+    expectKickoffPromptCall(api);
+  });
+
+  test("set proceeds while the session is busy when no goal is active", async () => {
     const { api, store } = await setup({ status: { type: "busy" } });
 
     const dialog = await selectGoalAction(api, "set");
-    await dialog.props.onConfirm("Do not store this");
+    await dialog.props.onConfirm("Set while busy");
 
-    expect((await store.getSession(SESSION_ID)).goal).toBeUndefined();
-    expect(api.toasts.at(-1)).toMatchObject({ variant: "info" });
+    const state = await store.getSession(SESSION_ID);
+    expect(state.goal).toMatchObject({ objective: "Set while busy", status: "active" });
+    expect(api.toasts.at(-1)).toMatchObject({ message: "Goal set" });
+    expect(api.promptCalls).toHaveLength(1);
+    expectKickoffPromptCall(api);
+  });
+
+  test("resume proceeds while the session is busy", async () => {
+    const { api, store } = await setup({ status: { type: "busy" } });
+    await store.createGoal(SESSION_ID, "Resume while busy");
+    await store.updateGoal(SESSION_ID, (goal) => ({ ...goal, status: "paused" }));
+    await store.setFlags(SESSION_ID, { autoContinuationSuppressed: true });
+
+    await selectGoalAction(api, "resume");
+
+    const state = await store.getSession(SESSION_ID);
+    expect(state.goal).toMatchObject({ objective: "Resume while busy", status: "active" });
+    expect(state.flags.autoContinuationSuppressed).toBe(false);
+    expect(api.toasts.at(-1)).toMatchObject({ message: "Goal resumed" });
+    expect(api.promptCalls).toHaveLength(1);
+    expectKickoffPromptCall(api);
+  });
+
+  test("pause works while the session is busy", async () => {
+    const { api, store } = await setup({ status: { type: "busy" } });
+    await store.createGoal(SESSION_ID, "Pause while busy");
+
+    await selectGoalAction(api, "pause");
+
+    expect((await store.getSession(SESSION_ID)).goal?.status).toBe("paused");
+    expect(api.toasts.at(-1)).toMatchObject({ message: "Goal paused" });
+    expect(api.promptCalls).toHaveLength(0);
+  });
+
+  test("drop works while the session is busy", async () => {
+    const { api, store } = await setup({ status: { type: "busy" } });
+    await store.createGoal(SESSION_ID, "Drop while busy");
+    await store.setFlags(SESSION_ID, {
+      continuationInFlight: true,
+      autoContinuationSuppressed: false,
+    });
+
+    await selectGoalAction(api, "drop");
+
+    const state = await store.getSession(SESSION_ID);
+    expect(state.goal?.status).toBe("dropped");
+    expect(state.flags.continuationInFlight).toBe(false);
+    expect(state.flags.autoContinuationSuppressed).toBe(true);
+    expect(api.toasts.at(-1)).toMatchObject({ message: "Goal dropped" });
     expect(api.promptCalls).toHaveLength(0);
   });
 });
