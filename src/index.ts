@@ -21,6 +21,9 @@ const plugin: Plugin = async (input, rawOptions) => {
     "command.execute.before": async (input, output) => {
       await handleGoalCommand(input, output as any, store);
     },
+    "tool.execute.before": async (input, output) => {
+      await runtime.onToolExecuteBefore(input, output);
+    },
     "chat.message": async (input, output) => {
       await runtime.onChatMessage(input, output);
     },

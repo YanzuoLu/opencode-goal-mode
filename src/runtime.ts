@@ -30,11 +30,37 @@ export class GoalRuntimeHooks {
   constructor(
     private readonly store: GoalStore,
     private readonly client: { session: Pick<OpencodeClient["session"], "promptAsync"> },
-    private readonly options: { maxContextBytes: number; autoContinue: boolean } = {
+    private readonly options: {
+      maxContextBytes: number;
+      autoContinue: boolean;
+      suppressQuestions?: boolean;
+    } = {
       maxContextBytes: 60000,
       autoContinue: true,
     },
   ) {}
+
+  // Goal mode runs unattended, so the interactive "question" tool (which halts the
+  // turn until the user answers) defeats the purpose — the goal stalls waiting for
+  // input. While a goal is active we abort the question tool before it executes;
+  // opencode surfaces the thrown message as the tool result, so the model reads it
+  // and proceeds autonomously instead of blocking. Disable with suppressQuestions:false.
+  async onToolExecuteBefore(
+    input: { tool: string; sessionID: string; callID: string },
+    _output: { args: unknown },
+  ): Promise<void> {
+    if (this.options.suppressQuestions === false) return;
+    if (input.tool !== "question") return;
+
+    const state = await this.store.getSession(input.sessionID);
+    if (!state.goal || state.goal.status !== "active") return;
+
+    throw new Error(
+      "Autonomous goal mode is active: the question tool is disabled. Do not ask the " +
+        "user. Make a reasonable assumption, state it briefly, and keep working toward " +
+        "the goal using the available tools.",
+    );
+  }
 
   async onEvent(input: { event: { type: string; properties?: Record<string, any> } }): Promise<void> {
     const event = input.event;

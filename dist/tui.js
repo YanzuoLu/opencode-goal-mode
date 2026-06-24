@@ -21,6 +21,8 @@ var ACTIVE_GOAL_RULES = [
   "The objective and supplemental instructions are authoritative for the current session.",
   "Later supplemental instructions override earlier conflicting instructions.",
   "Treat all real user messages after /goal as supplemental instructions for the active goal.",
+  "Work autonomously: do not ask the user questions or request clarification, and do not use the question tool. No user is available to answer mid-goal.",
+  "When something is ambiguous or underspecified, choose the most reasonable interpretation, state the assumption briefly, and keep making progress.",
   "A user interrupt does not pause, drop, or complete the goal.",
   "Synthetic continuation prompts are not user instructions.",
   'The goal is complete only after calling goal({ op: "complete" }).',
@@ -84,7 +86,7 @@ function renderContinuationPrompt(state) {
     "The active goal has not been completed.",
     "Continue making concrete progress toward the active goal using available tools when useful.",
     'If the goal is now complete, call goal({ op: "complete" }) and provide a concise completion summary.',
-    "If you cannot make progress without user input, ask exactly what you need and do not call tools just to keep the loop alive."
+    "Work autonomously: do not ask the user for input or clarification. When unsure, make a reasonable assumption, state it briefly, and proceed. Do not call tools just to keep the loop alive."
   ].join(`
 `);
 }
@@ -14381,14 +14383,16 @@ config(en_default());
 var schema = exports_external.object({
   statePath: exports_external.string().min(1).optional(),
   maxContextBytes: exports_external.number().int().positive().optional(),
-  autoContinue: exports_external.boolean().optional()
+  autoContinue: exports_external.boolean().optional(),
+  suppressQuestions: exports_external.boolean().optional()
 });
 function parseOptions(input) {
   const parsed = schema.parse(input ?? {});
   return {
     statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
-    autoContinue: parsed.autoContinue ?? true
+    autoContinue: parsed.autoContinue ?? true,
+    suppressQuestions: parsed.suppressQuestions ?? true
   };
 }
 

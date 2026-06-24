@@ -10,6 +10,7 @@ Persistent goal mode for opencode.
 - `/goal resume` resumes active/paused goals inline and submits model-visible goal context.
 - The inline `/goal` command only handles `set`, `replace`, and `resume` (the actions that drive the model). opencode always starts a model turn for an inline command, so the context-free actions `show`/`pause`/`drop` live in `/goal-menu` instead; typing them inline just points you there.
 - Ordinary user messages while a goal is active are persisted as supplemental instructions.
+- Goal mode runs autonomously: while a goal is active the model is told not to ask the user and to make reasonable assumptions instead, and the interactive `question` tool is aborted before it can halt the turn. Disable with `suppressQuestions: false`.
 - Esc interrupt does not pause or drop the goal.
 - Auto continuation runs only after opencode reports the session idle.
 - opencode's native post-compaction auto-continue remains enabled; goal mode only adds active-goal compaction context.
@@ -34,7 +35,7 @@ Pin the server plugin to a release tag in `opencode.json` so later updates do no
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.14"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.15"
   ]
 }
 ```
@@ -45,12 +46,12 @@ Pin the TUI plugin in `tui.json` with the same release tag:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.14"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.15"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.14`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.15`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -59,7 +60,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.14",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.15",
       { "autoContinue": true }
     ]
   ]
@@ -67,6 +68,8 @@ Optional plugin settings use opencode's tuple form:
 ```
 
 `statePath` is optional. By default, goal state is stored at `~/.local/share/opencode-goal-mode/state.json`. Override it only when you want isolated state for tests or a specific project.
+
+`suppressQuestions` is optional and defaults to `true`: while a goal is active the interactive `question` tool is aborted so the model proceeds autonomously instead of blocking for user input. Set it to `false` to let the model ask questions during a goal.
 
 ## tmux Smoke Test
 

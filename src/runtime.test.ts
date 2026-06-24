@@ -9,7 +9,7 @@ import plugin from "./index";
 import { GoalRuntimeHooks } from "./runtime";
 import { GoalStore } from "./store";
 
-async function setup(options?: { maxContextBytes: number; autoContinue: boolean }) {
+async function setup(options?: { maxContextBytes: number; autoContinue: boolean; suppressQuestions?: boolean }) {
   const dir = await mkdtemp(join(tmpdir(), "opencode-goal-runtime-"));
   const store = new GoalStore(join(dir, "state.json"));
   const client = { session: { promptAsync: async () => undefined } };
@@ -440,6 +440,7 @@ describe("plugin runtime wiring", () => {
     expect(hooks.tool).toHaveProperty("goal");
     expect(hooks.config).toBeFunction();
     expect(hooks["command.execute.before"]).toBeFunction();
+    expect(hooks["tool.execute.before"]).toBeFunction();
     expect(hooks["chat.message"]).toBeFunction();
     expect(hooks["experimental.chat.system.transform"]).toBeFunction();
     expect(hooks["experimental.session.compacting"]).toBeFunction();
@@ -488,5 +489,62 @@ describe("plugin runtime wiring", () => {
     const result = await goalTool.execute({ op: "get" }, { sessionID: "s1" } as any);
 
     expect(String(result)).toContain("Ship custom state");
+  });
+});
+
+describe("autonomous goal mode disables the question tool", () => {
+  // In goal mode the loop is meant to run unattended. opencode's "question" tool
+  // halts the turn waiting for the user, which stalls the goal ("block"). When a
+  // goal is active we abort the question tool before it runs so the model proceeds
+  // autonomously instead of waiting.
+  test("aborts the question tool while a goal is active", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+
+    await expect(
+      runtime.onToolExecuteBefore({ tool: "question", sessionID: "s1", callID: "c1" }, { args: {} }),
+    ).rejects.toThrow(/autonomous goal mode/i);
+  });
+
+  test("leaves the question tool alone when no goal is active", async () => {
+    const { runtime } = await setup();
+
+    await expect(
+      runtime.onToolExecuteBefore({ tool: "question", sessionID: "s1", callID: "c1" }, { args: {} }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("leaves the question tool alone for a non-active (paused) goal", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+    await store.updateGoal("s1", (goal) => ({ ...goal, status: "paused" }));
+
+    await expect(
+      runtime.onToolExecuteBefore({ tool: "question", sessionID: "s1", callID: "c1" }, { args: {} }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("never blocks non-question tools, even with an active goal", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+
+    for (const tool of ["bash", "edit", "read", "webfetch"]) {
+      await expect(
+        runtime.onToolExecuteBefore({ tool, sessionID: "s1", callID: "c1" }, { args: {} }),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  test("respects suppressQuestions:false (questions allowed)", async () => {
+    const { store, runtime } = await setup({
+      maxContextBytes: 60000,
+      autoContinue: true,
+      suppressQuestions: false,
+    });
+    await store.createGoal("s1", "Ship it");
+
+    await expect(
+      runtime.onToolExecuteBefore({ tool: "question", sessionID: "s1", callID: "c1" }, { args: {} }),
+    ).resolves.toBeUndefined();
   });
 });

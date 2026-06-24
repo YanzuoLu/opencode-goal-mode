@@ -9,7 +9,15 @@ export declare class GoalRuntimeHooks {
     }, options?: {
         maxContextBytes: number;
         autoContinue: boolean;
+        suppressQuestions?: boolean;
     });
+    onToolExecuteBefore(input: {
+        tool: string;
+        sessionID: string;
+        callID: string;
+    }, _output: {
+        args: unknown;
+    }): Promise<void>;
     onEvent(input: {
         event: {
             type: string;

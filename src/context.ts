@@ -69,7 +69,7 @@ export function renderContinuationPrompt(state: GoalSessionState): string | unde
     "The active goal has not been completed.",
     "Continue making concrete progress toward the active goal using available tools when useful.",
     'If the goal is now complete, call goal({ op: "complete" }) and provide a concise completion summary.',
-    "If you cannot make progress without user input, ask exactly what you need and do not call tools just to keep the loop alive.",
+    "Work autonomously: do not ask the user for input or clarification. When unsure, make a reasonable assumption, state it briefly, and proceed. Do not call tools just to keep the loop alive.",
   ].join("\n");
 }
 

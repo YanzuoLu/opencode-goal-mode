@@ -6,12 +6,14 @@ const schema = z.object({
   statePath: z.string().min(1).optional(),
   maxContextBytes: z.number().int().positive().optional(),
   autoContinue: z.boolean().optional(),
+  suppressQuestions: z.boolean().optional(),
 });
 
 export interface GoalPluginOptions {
   statePath: string;
   maxContextBytes: number;
   autoContinue: boolean;
+  suppressQuestions: boolean;
 }
 
 export function parseOptions(input: unknown): GoalPluginOptions {
@@ -20,5 +22,6 @@ export function parseOptions(input: unknown): GoalPluginOptions {
     statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true,
+    suppressQuestions: parsed.suppressQuestions ?? true,
   };
 }
