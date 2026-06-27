@@ -4,13 +4,22 @@ export declare class GoalRuntimeHooks {
     private readonly store;
     private readonly client;
     private readonly options;
+    private childrenByParent;
+    private commandOriginSkip;
     constructor(store: GoalStore, client: {
         session: Pick<OpencodeClient["session"], "promptAsync">;
     }, options?: {
         maxContextBytes: number;
         autoContinue: boolean;
         suppressQuestions?: boolean;
+        deferWhileSubagentsActive?: boolean;
+        subagentGraceMs?: number;
+        skipCommandOriginatedSupplements?: boolean;
+        commandOriginSkipTtlMs?: number;
+        ignoreSupplementMarkers?: string[];
+        now?: () => number;
     });
+    noteCommandOrigin(sessionID: string): void;
     onToolExecuteBefore(input: {
         tool: string;
         sessionID: string;
@@ -24,6 +33,14 @@ export declare class GoalRuntimeHooks {
             properties?: Record<string, any>;
         };
     }): Promise<void>;
+    private trackChildCreated;
+    private updateTrackedChildStatus;
+    private markTrackedChildIdle;
+    private removeTrackedChild;
+    private findTrackedChild;
+    private hasActiveSubagents;
+    private now;
+    private debugLog;
     private settleInFlightContinuation;
     maybeAutoContinue(sessionID: string): Promise<void>;
     onChatMessage(input: {

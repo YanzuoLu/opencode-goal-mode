@@ -19,6 +19,7 @@ const plugin: Plugin = async (input, rawOptions) => {
       registerGoalCommand(config);
     },
     "command.execute.before": async (input, output) => {
+      runtime.noteCommandOrigin(input.sessionID);
       await handleGoalCommand(input, output as any, store);
     },
     "tool.execute.before": async (input, output) => {

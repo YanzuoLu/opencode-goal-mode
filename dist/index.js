@@ -14544,37 +14544,74 @@ var schema2 = exports_external.object({
   statePath: exports_external.string().min(1).optional(),
   maxContextBytes: exports_external.number().int().positive().optional(),
   autoContinue: exports_external.boolean().optional(),
-  suppressQuestions: exports_external.boolean().optional()
+  suppressQuestions: exports_external.boolean().optional(),
+  deferWhileSubagentsActive: exports_external.boolean().optional(),
+  subagentGraceMs: exports_external.number().int().nonnegative().optional(),
+  skipCommandOriginatedSupplements: exports_external.boolean().optional(),
+  commandOriginSkipTtlMs: exports_external.number().int().nonnegative().optional(),
+  ignoreSupplementMarkers: exports_external.array(exports_external.string()).optional()
 });
+var DEFAULT_IGNORE_SUPPLEMENT_MARKERS = [
+  "<!-- SLIM_INTERNAL_INITIATOR -->",
+  "SENTINEL: background-job-board-v2"
+];
 function parseOptions(input) {
   const parsed = schema2.parse(input ?? {});
   return {
     statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true,
-    suppressQuestions: parsed.suppressQuestions ?? true
+    suppressQuestions: parsed.suppressQuestions ?? true,
+    deferWhileSubagentsActive: parsed.deferWhileSubagentsActive ?? true,
+    subagentGraceMs: parsed.subagentGraceMs ?? 4000,
+    skipCommandOriginatedSupplements: parsed.skipCommandOriginatedSupplements ?? true,
+    commandOriginSkipTtlMs: parsed.commandOriginSkipTtlMs ?? 15000,
+    ignoreSupplementMarkers: parsed.ignoreSupplementMarkers ?? DEFAULT_IGNORE_SUPPLEMENT_MARKERS
   };
 }
 
 // src/runtime.ts
+import { appendFileSync } from "node:fs";
+import { dirname, join as join2 } from "node:path";
 function textFromParts(parts) {
   const texts = parts.filter((part) => part.type === "text" && !part.synthetic && !part.ignored && typeof part.text === "string").map((part) => part.text?.trim()).filter((text) => Boolean(text));
   return texts.length ? texts.join(`
 
 `) : undefined;
 }
+var DEFAULT_IGNORE_SUPPLEMENT_MARKERS2 = [
+  "<!-- SLIM_INTERNAL_INITIATOR -->",
+  "SENTINEL: background-job-board-v2"
+];
 
 class GoalRuntimeHooks {
   store;
   client;
   options;
+  childrenByParent = new Map;
+  commandOriginSkip = new Map;
   constructor(store, client, options = {
     maxContextBytes: 60000,
     autoContinue: true
   }) {
     this.store = store;
     this.client = client;
-    this.options = options;
+    this.options = {
+      maxContextBytes: options.maxContextBytes,
+      autoContinue: options.autoContinue,
+      suppressQuestions: options.suppressQuestions,
+      deferWhileSubagentsActive: options.deferWhileSubagentsActive ?? true,
+      subagentGraceMs: options.subagentGraceMs ?? 4000,
+      skipCommandOriginatedSupplements: options.skipCommandOriginatedSupplements ?? true,
+      commandOriginSkipTtlMs: options.commandOriginSkipTtlMs ?? 15000,
+      ignoreSupplementMarkers: options.ignoreSupplementMarkers ?? DEFAULT_IGNORE_SUPPLEMENT_MARKERS2,
+      now: options.now
+    };
+  }
+  noteCommandOrigin(sessionID) {
+    if (!this.options.skipCommandOriginatedSupplements)
+      return;
+    this.commandOriginSkip.set(sessionID, this.now() + this.options.commandOriginSkipTtlMs);
   }
   async onToolExecuteBefore(input, _output) {
     if (this.options.suppressQuestions === false)
@@ -14588,6 +14625,28 @@ class GoalRuntimeHooks {
   }
   async onEvent(input) {
     const event = input.event;
+    if (event.type === "session.created") {
+      const childID = event.properties?.info?.id;
+      const parentID = event.properties?.info?.parentID;
+      if (childID && parentID) {
+        this.trackChildCreated(parentID, childID);
+      }
+      return;
+    }
+    if (event.type === "session.status") {
+      const statusSessionID = event.properties?.sessionID;
+      if (statusSessionID) {
+        this.updateTrackedChildStatus(statusSessionID, event.properties?.status?.type);
+      }
+      return;
+    }
+    if (event.type === "session.deleted" || event.type === "session.error") {
+      const deletedSessionID = event.properties?.info?.id ?? event.properties?.sessionID;
+      if (deletedSessionID) {
+        this.removeTrackedChild(deletedSessionID);
+      }
+      return;
+    }
     const sessionID = event.properties?.sessionID;
     if (!sessionID)
       return;
@@ -14643,9 +14702,85 @@ class GoalRuntimeHooks {
       return;
     }
     if (event.type === "session.idle") {
+      this.markTrackedChildIdle(sessionID);
       await this.settleInFlightContinuation(sessionID);
       await this.maybeAutoContinue(sessionID);
     }
+  }
+  trackChildCreated(parentSessionID, childSessionID) {
+    let children = this.childrenByParent.get(parentSessionID);
+    if (!children) {
+      children = new Map;
+      this.childrenByParent.set(parentSessionID, children);
+    }
+    children.set(childSessionID, { busy: true, idleSince: null });
+    this.debugLog("child.created", { parent: parentSessionID, child: childSessionID });
+  }
+  updateTrackedChildStatus(childSessionID, status) {
+    const child = this.findTrackedChild(childSessionID);
+    if (!child)
+      return;
+    if (status === "busy") {
+      child.busy = true;
+      child.idleSince = null;
+      this.debugLog("child.status", { child: childSessionID, busy: true });
+      return;
+    }
+    child.busy = false;
+    child.idleSince = this.now();
+    this.debugLog("child.status", { child: childSessionID, busy: false, status });
+  }
+  markTrackedChildIdle(childSessionID) {
+    const child = this.findTrackedChild(childSessionID);
+    if (!child)
+      return;
+    child.busy = false;
+    child.idleSince = this.now();
+    this.debugLog("child.idle", { child: childSessionID });
+  }
+  removeTrackedChild(childSessionID) {
+    for (const [parentSessionID, children] of this.childrenByParent) {
+      if (children.delete(childSessionID)) {
+        this.debugLog("child.removed", { parent: parentSessionID, child: childSessionID });
+      }
+      if (children.size === 0) {
+        this.childrenByParent.delete(parentSessionID);
+      }
+    }
+  }
+  findTrackedChild(childSessionID) {
+    for (const children of this.childrenByParent.values()) {
+      const child = children.get(childSessionID);
+      if (child)
+        return child;
+    }
+    return;
+  }
+  hasActiveSubagents(parentSessionID) {
+    const children = this.childrenByParent.get(parentSessionID);
+    if (!children || children.size === 0)
+      return false;
+    const now = this.now();
+    for (const child of children.values()) {
+      if (child.busy)
+        return true;
+      if (child.idleSince !== null && now - child.idleSince < this.options.subagentGraceMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+  now() {
+    return this.options.now?.() ?? Date.now();
+  }
+  debugLog(tag, data) {
+    if (!process.env.GOAL_MODE_DEBUG)
+      return;
+    try {
+      const line = `${JSON.stringify({ t: new Date().toISOString(), tag, ...data })}
+`;
+      appendFileSync(join2(dirname(this.store.filePath), "goal-mode-debug.log"), line);
+    } catch {}
   }
   async settleInFlightContinuation(sessionID) {
     const state = await this.store.getSession(sessionID);
@@ -14658,6 +14793,16 @@ class GoalRuntimeHooks {
   }
   async maybeAutoContinue(sessionID) {
     const state = await this.store.getSession(sessionID);
+    this.debugLog("continue.eval", {
+      session: sessionID,
+      autoContinue: this.options.autoContinue,
+      goalActive: state.goal?.status === "active",
+      suppressed: state.flags.autoContinuationSuppressed,
+      inFlight: state.flags.continuationInFlight,
+      pendingQ: state.flags.pendingQuestionCount,
+      pendingP: state.flags.pendingPermissionCount,
+      activeSubagents: this.hasActiveSubagents(sessionID)
+    });
     if (!this.options.autoContinue)
       return;
     if (!state.goal || state.goal.status !== "active")
@@ -14668,6 +14813,10 @@ class GoalRuntimeHooks {
       return;
     if (state.flags.pendingQuestionCount > 0 || state.flags.pendingPermissionCount > 0)
       return;
+    if (this.options.deferWhileSubagentsActive && this.hasActiveSubagents(sessionID)) {
+      this.debugLog("continue.deferred.subagents", { session: sessionID });
+      return;
+    }
     const context = renderActiveGoalContext(state);
     if (context && Buffer.byteLength(context, "utf8") > this.options.maxContextBytes) {
       await this.store.setFlags(sessionID, { autoContinuationSuppressed: true });
@@ -14680,6 +14829,7 @@ class GoalRuntimeHooks {
       continuationInFlight: true,
       turnHadToolCalls: false
     });
+    this.debugLog("continue.sent", { session: sessionID });
     await this.client.session.promptAsync({
       path: { id: sessionID },
       body: { parts: [{ type: "text", text, synthetic: true }] }
@@ -14689,6 +14839,18 @@ class GoalRuntimeHooks {
     const raw = textFromParts(output.parts);
     if (!raw)
       return;
+    if (this.options.ignoreSupplementMarkers.some((marker) => raw.includes(marker))) {
+      this.debugLog("supp.skip.marker", { session: input.sessionID });
+      return;
+    }
+    const skipExpiry = this.commandOriginSkip.get(input.sessionID);
+    if (skipExpiry !== undefined) {
+      this.commandOriginSkip.delete(input.sessionID);
+      if (this.now() < skipExpiry) {
+        this.debugLog("supp.skip.command", { session: input.sessionID });
+        return;
+      }
+    }
     const state = await this.store.getSession(input.sessionID);
     if (!state.goal || state.goal.status !== "active")
       return;
@@ -14751,7 +14913,7 @@ class GoalRuntimeHooks {
 // src/store.ts
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname as dirname2 } from "node:path";
 var EMPTY_DATA = { sessions: {} };
 var MAX_SUPPLEMENTS = 50;
 function defaultFlags() {
@@ -14931,7 +15093,7 @@ class GoalStore {
     }
   }
   async writeData(data) {
-    await mkdir(dirname(this.filePath), { recursive: true });
+    await mkdir(dirname2(this.filePath), { recursive: true });
     const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
     try {
       await writeFile(tempPath, `${JSON.stringify(data, null, 2)}
@@ -14957,6 +15119,7 @@ var plugin = async (input, rawOptions) => {
       registerGoalCommand(config2);
     },
     "command.execute.before": async (input2, output) => {
+      runtime.noteCommandOrigin(input2.sessionID);
       await handleGoalCommand(input2, output, store);
     },
     "tool.execute.before": async (input2, output) => {

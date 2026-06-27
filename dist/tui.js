@@ -14384,15 +14384,29 @@ var schema = exports_external.object({
   statePath: exports_external.string().min(1).optional(),
   maxContextBytes: exports_external.number().int().positive().optional(),
   autoContinue: exports_external.boolean().optional(),
-  suppressQuestions: exports_external.boolean().optional()
+  suppressQuestions: exports_external.boolean().optional(),
+  deferWhileSubagentsActive: exports_external.boolean().optional(),
+  subagentGraceMs: exports_external.number().int().nonnegative().optional(),
+  skipCommandOriginatedSupplements: exports_external.boolean().optional(),
+  commandOriginSkipTtlMs: exports_external.number().int().nonnegative().optional(),
+  ignoreSupplementMarkers: exports_external.array(exports_external.string()).optional()
 });
+var DEFAULT_IGNORE_SUPPLEMENT_MARKERS = [
+  "<!-- SLIM_INTERNAL_INITIATOR -->",
+  "SENTINEL: background-job-board-v2"
+];
 function parseOptions(input) {
   const parsed = schema.parse(input ?? {});
   return {
     statePath: parsed.statePath ?? join(homedir(), ".local", "share", "opencode-goal-mode", "state.json"),
     maxContextBytes: parsed.maxContextBytes ?? 60000,
     autoContinue: parsed.autoContinue ?? true,
-    suppressQuestions: parsed.suppressQuestions ?? true
+    suppressQuestions: parsed.suppressQuestions ?? true,
+    deferWhileSubagentsActive: parsed.deferWhileSubagentsActive ?? true,
+    subagentGraceMs: parsed.subagentGraceMs ?? 4000,
+    skipCommandOriginatedSupplements: parsed.skipCommandOriginatedSupplements ?? true,
+    commandOriginSkipTtlMs: parsed.commandOriginSkipTtlMs ?? 15000,
+    ignoreSupplementMarkers: parsed.ignoreSupplementMarkers ?? DEFAULT_IGNORE_SUPPLEMENT_MARKERS
   };
 }
 

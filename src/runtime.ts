@@ -1,4 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
+import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import {
   GOAL_START_SUFFIX,
@@ -26,19 +28,63 @@ function textFromParts(
   return texts.length ? texts.join("\n\n") : undefined;
 }
 
+const DEFAULT_IGNORE_SUPPLEMENT_MARKERS = [
+  "<!-- SLIM_INTERNAL_INITIATOR -->",
+  "SENTINEL: background-job-board-v2",
+];
+
 export class GoalRuntimeHooks {
+  private readonly options: {
+    maxContextBytes: number;
+    autoContinue: boolean;
+    suppressQuestions?: boolean;
+    deferWhileSubagentsActive: boolean;
+    subagentGraceMs: number;
+    skipCommandOriginatedSupplements: boolean;
+    commandOriginSkipTtlMs: number;
+    ignoreSupplementMarkers: string[];
+    now?: () => number;
+  };
+
+  private childrenByParent = new Map<string, Map<string, { busy: boolean; idleSince: number | null }>>();
+  private commandOriginSkip = new Map<string, number>();
+
   constructor(
     private readonly store: GoalStore,
     private readonly client: { session: Pick<OpencodeClient["session"], "promptAsync"> },
-    private readonly options: {
+    options: {
       maxContextBytes: number;
       autoContinue: boolean;
       suppressQuestions?: boolean;
+      deferWhileSubagentsActive?: boolean;
+      subagentGraceMs?: number;
+      skipCommandOriginatedSupplements?: boolean;
+      commandOriginSkipTtlMs?: number;
+      ignoreSupplementMarkers?: string[];
+      now?: () => number;
     } = {
       maxContextBytes: 60000,
       autoContinue: true,
     },
-  ) {}
+  ) {
+    this.options = {
+      maxContextBytes: options.maxContextBytes,
+      autoContinue: options.autoContinue,
+      suppressQuestions: options.suppressQuestions,
+      deferWhileSubagentsActive: options.deferWhileSubagentsActive ?? true,
+      subagentGraceMs: options.subagentGraceMs ?? 4000,
+      skipCommandOriginatedSupplements: options.skipCommandOriginatedSupplements ?? true,
+      commandOriginSkipTtlMs: options.commandOriginSkipTtlMs ?? 15000,
+      ignoreSupplementMarkers: options.ignoreSupplementMarkers ?? DEFAULT_IGNORE_SUPPLEMENT_MARKERS,
+      now: options.now,
+    };
+  }
+
+  noteCommandOrigin(sessionID: string): void {
+    if (!this.options.skipCommandOriginatedSupplements) return;
+
+    this.commandOriginSkip.set(sessionID, this.now() + this.options.commandOriginSkipTtlMs);
+  }
 
   // Goal mode runs unattended, so the interactive "question" tool (which halts the
   // turn until the user answers) defeats the purpose — the goal stalls waiting for
@@ -64,6 +110,32 @@ export class GoalRuntimeHooks {
 
   async onEvent(input: { event: { type: string; properties?: Record<string, any> } }): Promise<void> {
     const event = input.event;
+
+    if (event.type === "session.created") {
+      const childID = event.properties?.info?.id;
+      const parentID = event.properties?.info?.parentID;
+      if (childID && parentID) {
+        this.trackChildCreated(parentID, childID);
+      }
+      return;
+    }
+
+    if (event.type === "session.status") {
+      const statusSessionID = event.properties?.sessionID;
+      if (statusSessionID) {
+        this.updateTrackedChildStatus(statusSessionID, event.properties?.status?.type);
+      }
+      return;
+    }
+
+    if (event.type === "session.deleted" || event.type === "session.error") {
+      const deletedSessionID = event.properties?.info?.id ?? event.properties?.sessionID;
+      if (deletedSessionID) {
+        this.removeTrackedChild(deletedSessionID);
+      }
+      return;
+    }
+
     const sessionID = event.properties?.sessionID;
     if (!sessionID) return;
 
@@ -133,8 +205,96 @@ export class GoalRuntimeHooks {
     }
 
     if (event.type === "session.idle") {
+      this.markTrackedChildIdle(sessionID);
       await this.settleInFlightContinuation(sessionID);
       await this.maybeAutoContinue(sessionID);
+    }
+  }
+
+  private trackChildCreated(parentSessionID: string, childSessionID: string): void {
+    let children = this.childrenByParent.get(parentSessionID);
+    if (!children) {
+      children = new Map<string, { busy: boolean; idleSince: number | null }>();
+      this.childrenByParent.set(parentSessionID, children);
+    }
+
+    children.set(childSessionID, { busy: true, idleSince: null });
+    this.debugLog("child.created", { parent: parentSessionID, child: childSessionID });
+  }
+
+  private updateTrackedChildStatus(childSessionID: string, status: string | undefined): void {
+    const child = this.findTrackedChild(childSessionID);
+    if (!child) return;
+
+    if (status === "busy") {
+      child.busy = true;
+      child.idleSince = null;
+      this.debugLog("child.status", { child: childSessionID, busy: true });
+      return;
+    }
+
+    child.busy = false;
+    child.idleSince = this.now();
+    this.debugLog("child.status", { child: childSessionID, busy: false, status });
+  }
+
+  private markTrackedChildIdle(childSessionID: string): void {
+    const child = this.findTrackedChild(childSessionID);
+    if (!child) return;
+
+    child.busy = false;
+    child.idleSince = this.now();
+    this.debugLog("child.idle", { child: childSessionID });
+  }
+
+  private removeTrackedChild(childSessionID: string): void {
+    for (const [parentSessionID, children] of this.childrenByParent) {
+      if (children.delete(childSessionID)) {
+        this.debugLog("child.removed", { parent: parentSessionID, child: childSessionID });
+      }
+      if (children.size === 0) {
+        this.childrenByParent.delete(parentSessionID);
+      }
+    }
+  }
+
+  private findTrackedChild(
+    childSessionID: string,
+  ): { busy: boolean; idleSince: number | null } | undefined {
+    for (const children of this.childrenByParent.values()) {
+      const child = children.get(childSessionID);
+      if (child) return child;
+    }
+
+    return undefined;
+  }
+
+  private hasActiveSubagents(parentSessionID: string): boolean {
+    const children = this.childrenByParent.get(parentSessionID);
+    if (!children || children.size === 0) return false;
+
+    const now = this.now();
+    for (const child of children.values()) {
+      if (child.busy) return true;
+      if (child.idleSince !== null && now - child.idleSince < this.options.subagentGraceMs) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  private debugLog(tag: string, data: Record<string, unknown>): void {
+    if (!process.env.GOAL_MODE_DEBUG) return;
+    try {
+      const line = `${JSON.stringify({ t: new Date().toISOString(), tag, ...data })}\n`;
+      appendFileSync(join(dirname(this.store.filePath), "goal-mode-debug.log"), line);
+    } catch {
+      // Debug logging must never affect runtime behavior.
     }
   }
 
@@ -150,11 +310,25 @@ export class GoalRuntimeHooks {
 
   async maybeAutoContinue(sessionID: string): Promise<void> {
     const state = await this.store.getSession(sessionID);
+    this.debugLog("continue.eval", {
+      session: sessionID,
+      autoContinue: this.options.autoContinue,
+      goalActive: state.goal?.status === "active",
+      suppressed: state.flags.autoContinuationSuppressed,
+      inFlight: state.flags.continuationInFlight,
+      pendingQ: state.flags.pendingQuestionCount,
+      pendingP: state.flags.pendingPermissionCount,
+      activeSubagents: this.hasActiveSubagents(sessionID),
+    });
     if (!this.options.autoContinue) return;
     if (!state.goal || state.goal.status !== "active") return;
     if (state.flags.autoContinuationSuppressed) return;
     if (state.flags.continuationInFlight) return;
     if (state.flags.pendingQuestionCount > 0 || state.flags.pendingPermissionCount > 0) return;
+    if (this.options.deferWhileSubagentsActive && this.hasActiveSubagents(sessionID)) {
+      this.debugLog("continue.deferred.subagents", { session: sessionID });
+      return;
+    }
 
     const context = renderActiveGoalContext(state);
     if (context && Buffer.byteLength(context, "utf8") > this.options.maxContextBytes) {
@@ -169,6 +343,7 @@ export class GoalRuntimeHooks {
       continuationInFlight: true,
       turnHadToolCalls: false,
     });
+    this.debugLog("continue.sent", { session: sessionID });
     await this.client.session.promptAsync({
       path: { id: sessionID },
       body: { parts: [{ type: "text", text, synthetic: true }] },
@@ -181,6 +356,19 @@ export class GoalRuntimeHooks {
   ): Promise<void> {
     const raw = textFromParts(output.parts);
     if (!raw) return;
+    if (this.options.ignoreSupplementMarkers.some((marker) => raw.includes(marker))) {
+      this.debugLog("supp.skip.marker", { session: input.sessionID });
+      return;
+    }
+
+    const skipExpiry = this.commandOriginSkip.get(input.sessionID);
+    if (skipExpiry !== undefined) {
+      this.commandOriginSkip.delete(input.sessionID);
+      if (this.now() < skipExpiry) {
+        this.debugLog("supp.skip.command", { session: input.sessionID });
+        return;
+      }
+    }
 
     const state = await this.store.getSession(input.sessionID);
     if (!state.goal || state.goal.status !== "active") return;

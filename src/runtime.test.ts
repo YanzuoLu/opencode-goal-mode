@@ -9,11 +9,45 @@ import plugin from "./index";
 import { GoalRuntimeHooks } from "./runtime";
 import { GoalStore } from "./store";
 
-async function setup(options?: { maxContextBytes: number; autoContinue: boolean; suppressQuestions?: boolean }) {
+async function setup(options?: ConstructorParameters<typeof GoalRuntimeHooks>[2]) {
   const dir = await mkdtemp(join(tmpdir(), "opencode-goal-runtime-"));
   const store = new GoalStore(join(dir, "state.json"));
   const client = { session: { promptAsync: async () => undefined } };
   return { store, runtime: new GoalRuntimeHooks(store, client as any, options) };
+}
+
+async function setupPromptRuntime(options?: ConstructorParameters<typeof GoalRuntimeHooks>[2]) {
+  const calls: any[] = [];
+  const dir = await mkdtemp(join(tmpdir(), "opencode-goal-runtime-"));
+  const store = new GoalStore(join(dir, "state.json"));
+  const runtime = new GoalRuntimeHooks(
+    store,
+    { session: { promptAsync: async (args: any) => calls.push(args) } } as any,
+    options,
+  );
+  return { store, runtime, calls };
+}
+
+const INTEROP_IGNORE_SUPPLEMENT_MARKERS = [
+  "<!-- SLIM_INTERNAL_INITIATOR -->",
+  "SENTINEL: background-job-board-v2",
+];
+
+function interopRuntimeOptions(
+  now: () => number,
+  overrides: Partial<NonNullable<ConstructorParameters<typeof GoalRuntimeHooks>[2]>> = {},
+): NonNullable<ConstructorParameters<typeof GoalRuntimeHooks>[2]> {
+  return {
+    maxContextBytes: 60000,
+    autoContinue: true,
+    deferWhileSubagentsActive: true,
+    subagentGraceMs: 4000,
+    skipCommandOriginatedSupplements: true,
+    commandOriginSkipTtlMs: 15000,
+    ignoreSupplementMarkers: INTEROP_IGNORE_SUPPLEMENT_MARKERS,
+    now,
+    ...overrides,
+  };
 }
 
 describe("GoalRuntimeHooks", () => {
@@ -28,6 +62,85 @@ describe("GoalRuntimeHooks", () => {
 
     const state = await store.getSession("s1");
     expect(state.goal?.supplements[0]?.text).toBe("Prefer server-only.");
+  });
+
+  test("does not capture internal initiator marked messages as supplements", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-internal" },
+      { parts: [{ type: "text", text: "Interview turn <!-- SLIM_INTERNAL_INITIATOR -->" }] } as any,
+    );
+
+    expect((await store.getSession("s1")).goal?.supplements).toHaveLength(0);
+  });
+
+  test("does not capture background job board marked messages as supplements", async () => {
+    const { store, runtime } = await setup();
+    await store.createGoal("s1", "Ship it");
+
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-job-board" },
+      { parts: [{ type: "text", text: "SENTINEL: background-job-board-v2\nWorker notes" }] } as any,
+    );
+
+    expect((await store.getSession("s1")).goal?.supplements).toHaveLength(0);
+  });
+
+  test("skips one markerless command-originated supplement and captures the next real message", async () => {
+    let currentTime = 1000;
+    const { store, runtime } = await setup(interopRuntimeOptions(() => currentTime));
+    await store.createGoal("s1", "Ship it");
+
+    runtime.noteCommandOrigin("s1");
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-command" },
+      { parts: [{ type: "text", text: "/deepwork Ship server kickoff" }] } as any,
+    );
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-real" },
+      { parts: [{ type: "text", text: "Prefer server-only." }] } as any,
+    );
+
+    const supplements = (await store.getSession("s1")).goal?.supplements ?? [];
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0]?.text).toBe("Prefer server-only.");
+  });
+
+  test("captures command-originated messages after the one-shot skip TTL expires", async () => {
+    let currentTime = 1000;
+    const { store, runtime } = await setup(interopRuntimeOptions(() => currentTime));
+    await store.createGoal("s1", "Ship it");
+
+    runtime.noteCommandOrigin("s1");
+    currentTime += 15001;
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-late" },
+      { parts: [{ type: "text", text: "Late genuine instruction." }] } as any,
+    );
+
+    const supplements = (await store.getSession("s1")).goal?.supplements ?? [];
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0]?.text).toBe("Late genuine instruction.");
+  });
+
+  test("captures command-originated messages when command-origin skipping is disabled", async () => {
+    let currentTime = 1000;
+    const { store, runtime } = await setup(
+      interopRuntimeOptions(() => currentTime, { skipCommandOriginatedSupplements: false }),
+    );
+    await store.createGoal("s1", "Ship it");
+
+    runtime.noteCommandOrigin("s1");
+    await runtime.onChatMessage(
+      { sessionID: "s1", messageID: "m-command-captured" },
+      { parts: [{ type: "text", text: "Plain command-originated instruction." }] } as any,
+    );
+
+    const supplements = (await store.getSession("s1")).goal?.supplements ?? [];
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0]?.text).toBe("Plain command-originated instruction.");
   });
 
   test("does not capture a merged goal kickoff message as a supplement (regression: no nesting)", async () => {
@@ -190,6 +303,83 @@ describe("GoalRuntimeHooks", () => {
     expect(calls[0].path.id).toBe("s1");
     expect(calls[0].body.parts[0].synthetic).toBe(true);
     expect(calls[0].body.parts[0].text).toContain("The active goal has not been completed");
+  });
+
+  test("defers idle auto continuation while a child subagent is active", async () => {
+    let currentTime = 1000;
+    const { store, runtime, calls } = await setupPromptRuntime(interopRuntimeOptions(() => currentTime));
+    await store.createGoal("P", "Ship it");
+
+    await runtime.onEvent({
+      event: { type: "session.created", properties: { info: { id: "C", parentID: "P" } } },
+    });
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "P" } },
+    });
+
+    expect(calls).toHaveLength(0);
+
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "C" } },
+    });
+    currentTime += 4001;
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "P" } },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path.id).toBe("P");
+  });
+
+  test("session.deleted removes child subagents so idle continuation can resume", async () => {
+    const { store, runtime, calls } = await setupPromptRuntime();
+    await store.createGoal("P", "Ship it");
+
+    await runtime.onEvent({
+      event: { type: "session.created", properties: { info: { id: "C", parentID: "P" } } },
+    });
+    await runtime.onEvent({
+      event: { type: "session.deleted", properties: { info: { id: "C" } } },
+    });
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "P" } },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path.id).toBe("P");
+  });
+
+  test("deferWhileSubagentsActive:false allows continuation despite an active child", async () => {
+    let currentTime = 1000;
+    const { store, runtime, calls } = await setupPromptRuntime(
+      interopRuntimeOptions(() => currentTime, { deferWhileSubagentsActive: false }),
+    );
+    await store.createGoal("P", "Ship it");
+
+    await runtime.onEvent({
+      event: { type: "session.created", properties: { info: { id: "C", parentID: "P" } } },
+    });
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "P" } },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path.id).toBe("P");
+  });
+
+  test("child subagents of other parents do not block idle continuation", async () => {
+    const { store, runtime, calls } = await setupPromptRuntime();
+    await store.createGoal("P", "Ship it");
+
+    await runtime.onEvent({
+      event: { type: "session.created", properties: { info: { id: "C", parentID: "other" } } },
+    });
+    await runtime.onEvent({
+      event: { type: "session.idle", properties: { sessionID: "P" } },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path.id).toBe("P");
   });
 
   test("idle settles an in-flight no-tool continuation without prompting", async () => {
