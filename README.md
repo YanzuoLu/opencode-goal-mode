@@ -36,7 +36,7 @@ Pin the server plugin to a release tag in `opencode.json` so later updates do no
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.16"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.17"
   ]
 }
 ```
@@ -47,12 +47,12 @@ Pin the TUI plugin in `tui.json` with the same release tag:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.16"
+    "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.17"
   ]
 }
 ```
 
-Use a specific tag such as `#v0.1.16`, not a floating branch. Restart opencode after changing the plugin list.
+Use a specific tag such as `#v0.1.17`, not a floating branch. Restart opencode after changing the plugin list.
 
 Optional plugin settings use opencode's tuple form:
 
@@ -61,7 +61,7 @@ Optional plugin settings use opencode's tuple form:
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     [
-      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.16",
+      "opencode-goal-mode@git+https://github.com/YanzuoLu/opencode-goal-mode.git#v0.1.17",
       { "autoContinue": true }
     ]
   ]
